@@ -495,12 +495,32 @@ const ProjectLists = () => {
                         {project.representative_image ? (
                           <div className="flex-shrink-0">
                             <img
-                              src={`/uploads/project/mj/registImage/${project.representative_image}`}
+                              src={project.representative_image.url || `/uploads/project/mj/registImage/${project.representative_image.filename}`}
                               alt={`${project.project_name} 대표이미지`}
                               className="w-16 h-16 object-cover rounded-lg border border-gray-200 shadow-sm cursor-pointer"
                               onError={(e) => {
-                                e.target.style.display = 'none';
-                                e.target.nextSibling.style.display = 'flex';
+                                console.log('❌ [ProjectLists] 이미지 로드 실패:', {
+                                  filename: project.representative_image.filename,
+                                  url: project.representative_image.url,
+                                  fallback_url: project.representative_image.fallback_url
+                                });
+                                
+                                // 이미지 로드 실패 시 대체 URL 시도
+                                if (project.representative_image.fallback_url) {
+                                  console.log('🔄 [ProjectLists] fallback URL 시도:', project.representative_image.fallback_url);
+                                  e.target.src = project.representative_image.fallback_url;
+                                } else if (project.representative_image.filename) {
+                                  const fallbackUrl = `/uploads/project/mj/registImage/${project.representative_image.filename}`;
+                                  console.log('🔄 [ProjectLists] 클라이언트 생성 fallback URL 시도:', fallbackUrl);
+                                  e.target.src = fallbackUrl;
+                                }
+                                
+                                // 대체 URL도 실패하면 기본 아이콘 표시
+                                e.target.onerror = () => {
+                                  console.log('❌ [ProjectLists] 모든 이미지 URL 시도 실패, 기본 아이콘 표시');
+                                  e.target.style.display = 'none';
+                                  e.target.nextSibling.style.display = 'flex';
+                                };
                               }}
                               onClick={() => handleViewProject(project.id)}
                             />

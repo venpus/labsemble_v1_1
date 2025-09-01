@@ -309,10 +309,37 @@ const ProjectDetails = () => {
                       {project.images.map((image, index) => (
                         <div key={index} className="relative group">
                           <img
-                            src={`/uploads/project/mj/registImage/${image.file_name}`}
+                            src={image.url || `/uploads/project/mj/registImage/${image.file_name}`}
                             alt={`프로젝트 이미지 ${index + 1}`}
                             className="w-full h-32 object-cover rounded-lg border border-gray-200 shadow-sm hover:shadow-md transition-shadow cursor-pointer"
-                            onClick={() => window.open(`/uploads/project/mj/registImage/${image.file_name}`, '_blank')}
+                            onError={(e) => {
+                              console.log('❌ [ProjectDetails] 이미지 로드 실패:', {
+                                filename: image.file_name,
+                                url: image.url,
+                                fallback_url: image.fallback_url
+                              });
+                              
+                              // 이미지 로드 실패 시 대체 URL 시도
+                              if (image.fallback_url) {
+                                console.log('🔄 [ProjectDetails] fallback URL 시도:', image.fallback_url);
+                                e.target.src = image.fallback_url;
+                              } else if (image.file_name) {
+                                const fallbackUrl = `/uploads/project/mj/registImage/${image.file_name}`;
+                                console.log('🔄 [ProjectDetails] 클라이언트 생성 fallback URL 시도:', fallbackUrl);
+                                e.target.src = fallbackUrl;
+                              }
+                              
+                              // 대체 URL도 실패하면 기본 아이콘 표시
+                              e.target.onerror = () => {
+                                console.log('❌ [ProjectDetails] 모든 이미지 URL 시도 실패, 기본 아이콘 표시');
+                                e.target.style.display = 'none';
+                                // 기본 아이콘 표시 로직 추가
+                              };
+                            }}
+                            onClick={() => {
+                              const imageUrl = image.url || image.fallback_url || `/uploads/project/mj/registImage/${image.file_name}`;
+                              window.open(imageUrl, '_blank');
+                            }}
                           />
                           <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-20 transition-all duration-200 rounded-lg flex items-center justify-center">
                             <div className="opacity-0 group-hover:opacity-100 transition-opacity duration-200">

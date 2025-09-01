@@ -301,7 +301,7 @@ router.get('/', authMiddleware, async (req, res) => {
         u.company_name,
         c.username as created_by_username,
         c.company_name as created_by_company,
-        (SELECT file_path FROM mj_project_images WHERE project_id = p.id ORDER BY id ASC LIMIT 1) as representative_image,
+        (SELECT file_name FROM mj_project_images WHERE project_id = p.id ORDER BY id ASC LIMIT 1) as representative_image_filename,
         (SELECT COALESCE(SUM(quantity), 0) FROM warehouse_entries WHERE project_id = p.id) as warehouse_quantity
       FROM mj_project p
       JOIN users u ON p.user_id = u.id
@@ -321,9 +321,22 @@ router.get('/', authMiddleware, async (req, res) => {
     
     const [projects] = await pool.execute(sql, params);
     
-
+    // 이미지 정보를 SearchModal과 동일한 방식으로 구성
+    const projectsWithImages = projects.map(project => {
+      if (project.representative_image_filename) {
+        return {
+          ...project,
+          representative_image: {
+            filename: project.representative_image_filename,
+            url: `/api/warehouse/image/${project.representative_image_filename}`,
+            fallback_url: `/uploads/project/mj/registImage/${project.representative_image_filename}`
+          }
+        };
+      }
+      return project;
+    });
     
-    res.json({ success: true, projects });
+    res.json({ success: true, projects: projectsWithImages });
   } catch (error) {
     console.error('MJ 프로젝트 목록 조회 오류:', error);
     res.status(500).json({ success: false, error: '프로젝트 목록 조회 중 오류가 발생했습니다.' });
@@ -373,12 +386,19 @@ router.get('/:id', async (req, res) => {
       [id]
     );
     
+    // 이미지 정보를 SearchModal과 동일한 방식으로 구성
+    const imagesWithUrls = images.map(image => ({
+      ...image,
+      url: `/api/warehouse/image/${image.file_name}`,
+      fallback_url: `/uploads/project/mj/registImage/${image.file_name}`
+    }));
+    
     res.json({
       success: true,
       project: {
         ...project,
         referenceLinks: links,
-        images: images
+        images: imagesWithUrls
       }
     });
     
