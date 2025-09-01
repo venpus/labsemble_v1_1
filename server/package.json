@@ -6,6 +6,9 @@
   "scripts": {
     "start": "node index.js",
     "dev": "nodemon index.js",
+    "setup-env": "node setup-env.js",
+    "setup-env:dev": "node setup-env.js development",
+    "setup-env:prod": "node setup-env.js production",
     "migrate": "node -e \"require('./config/database.js').runAllMigrations().then(() => process.exit(0)).catch(err => { console.error(err); process.exit(1); })\"",
     "migrate:packing-list": "node run-packing-list-migration.js",
     "migrate:stock": "node run-stock-migration.js",

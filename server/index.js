@@ -16,7 +16,19 @@ const {
   migratePaymentColumns,
   runAllMigrations
 } = require('./config/database');
+// 환경변수 로드
 require('dotenv').config();
+
+// 필수 환경변수 기본값 설정
+if (!process.env.JWT_SECRET) {
+  console.warn('⚠️  JWT_SECRET 환경변수가 설정되지 않았습니다. 기본값을 사용합니다.');
+  process.env.JWT_SECRET = 'default-jwt-secret-key-for-development-only-change-in-production';
+}
+
+if (!process.env.NODE_ENV) {
+  process.env.NODE_ENV = 'development';
+  console.log('ℹ️  NODE_ENV가 설정되지 않아 development로 설정됩니다.');
+}
 
 const app = express();
 const PORT = process.env.PORT || 5000;
