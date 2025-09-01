@@ -168,9 +168,23 @@ const ProjectSearchModal = ({ isOpen, onClose, onSelectProject }) => {
                               project: project.project_name,
                               projectData: project
                             });
-                            // 이미지 로드 실패 시 기본 아이콘 표시
-                            e.target.style.display = 'none';
-                            e.target.nextSibling.style.display = 'flex';
+                            
+                            // 이미지 로드 실패 시 대체 URL 시도
+                            if (project.first_image.fallback_url) {
+                              console.log('🔄 [ProjectSearchModal] 서버 제공 fallback URL 시도:', project.first_image.fallback_url);
+                              e.target.src = project.first_image.fallback_url;
+                            } else if (project.first_image.stored_filename) {
+                              const fallbackUrl = `/uploads/project/mj/registImage/${project.first_image.stored_filename}`;
+                              console.log('🔄 [ProjectSearchModal] 클라이언트 생성 fallback URL 시도:', fallbackUrl);
+                              e.target.src = fallbackUrl;
+                            }
+                            
+                            // 대체 URL도 실패하면 기본 아이콘 표시
+                            e.target.onerror = () => {
+                              console.log('❌ [ProjectSearchModal] 모든 이미지 URL 시도 실패, 기본 아이콘 표시');
+                              e.target.style.display = 'none';
+                              e.target.nextSibling.style.display = 'flex';
+                            };
                           }}
                           onLoad={() => {
                             console.log('✅ [ProjectSearchModal] 이미지 로드 성공:', {

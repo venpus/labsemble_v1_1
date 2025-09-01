@@ -20,16 +20,46 @@ require('dotenv').config();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
+const NODE_ENV = process.env.NODE_ENV || 'development';
+
+// 환경별 설정
+const isProduction = NODE_ENV === 'production';
+console.log(`🌍 서버 환경: ${NODE_ENV} (${isProduction ? '상용' : '개발'})`);
 
 // Middleware
 app.use(helmet());
-app.use(cors({
-  origin: ['http://localhost:3000', 'http://127.0.0.1:3000'],
+// CORS 설정 - 개발환경과 상용환경 모두 지원
+const corsOptions = {
+  origin: function (origin, callback) {
+    // 개발환경
+    const allowedOrigins = [
+      'http://localhost:3000', 
+      'http://127.0.0.1:3000',
+      'https://labsemble.com',
+      'https://www.labsemble.com'
+    ];
+    
+    // origin이 없는 경우 (Postman, curl 등) 허용
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      console.log(`🚫 CORS 차단된 origin: ${origin}`);
+      callback(new Error('CORS 정책에 의해 차단되었습니다.'));
+    }
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
-}));
-app.use(morgan('combined'));
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  optionsSuccessStatus: 200
+};
+
+app.use(cors(corsOptions));
+// 로깅 설정 - 환경별로 다르게
+if (isProduction) {
+  app.use(morgan('combined')); // 상용환경: 기본 로그
+} else {
+  app.use(morgan('dev')); // 개발환경: 상세 로그
+}
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
@@ -38,8 +68,18 @@ app.use('/uploads', (req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
   res.header('Access-Control-Allow-Methods', 'GET, OPTIONS');
   res.header('Access-Control-Allow-Headers', 'Content-Type');
+  res.header('Cache-Control', 'public, max-age=31536000'); // 1년 캐시
   next();
 }, express.static('uploads'));
+
+// 추가 정적 파일 경로 (프로젝트 이미지용)
+app.use('/api/warehouse/image', (req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type');
+  res.header('Cache-Control', 'public, max-age=31536000'); // 1년 캐시
+  next();
+}, express.static('uploads/project/mj/registImage'));
 
 // Rate limiting
 const limiter = rateLimit({
@@ -353,6 +393,7 @@ const startServer = async () => {
     // 서버 시작
     app.listen(PORT, () => {
       console.log(`🚀 Manufacturing API 서버가 포트 ${PORT}에서 실행 중입니다.`);
+      console.log(`🌍 서버 환경: ${NODE_ENV} (${isProduction ? '상용' : '개발'})`);
       console.log(`🌍 Timezone: ${process.env.TZ}`);
       console.log(`📊 마이그레이션 상태 확인: http://localhost:${PORT}/api/migration/status`);
       console.log('💡 서버가 완전히 시작되기까지 몇 초 정도 소요될 수 있습니다.');

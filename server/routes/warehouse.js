@@ -640,10 +640,12 @@ router.get('/image/:filename', async (req, res) => {
     const fs = require('fs');
     const path = require('path');
     
+    // 상용서버와 개발서버 모두에서 작동하도록 경로 설정
     const imagePath = path.join(__dirname, '../uploads/project/mj/registImage', filename);
     
     // 파일 존재 확인
     if (!fs.existsSync(imagePath)) {
+      console.log(`❌ [warehouse] 이미지 파일을 찾을 수 없음: ${imagePath}`);
       return res.status(404).json({ error: '이미지를 찾을 수 없습니다.' });
     }
     
@@ -669,8 +671,10 @@ router.get('/image/:filename', async (req, res) => {
     res.setHeader('Cache-Control', 'public, max-age=31536000'); // 1년 캐시
     res.send(imageBuffer);
     
+    console.log(`✅ [warehouse] 이미지 제공 성공: ${filename} (${stats.size} bytes)`);
+    
   } catch (error) {
-    errorLog('❌ [warehouse] 이미지 프록시 오류:', error);
+    console.error('❌ [warehouse] 이미지 프록시 오류:', error);
     res.status(500).json({ error: '이미지 로드 중 오류가 발생했습니다.' });
   }
 });
@@ -739,7 +743,9 @@ router.get('/products-with-remain-quantity', authMiddleware, async (req, res) =>
           created_at: firstImage.created_at,
           // 프록시 엔드포인트를 통해 이미지 제공 (CORS 문제 해결)
           url: `/api/warehouse/image/${firstImage.file_name}`,
-          thumbnail_url: `/api/warehouse/image/${firstImage.file_name}`
+          thumbnail_url: `/api/warehouse/image/${firstImage.file_name}`,
+          // 대체 URL도 제공 (상용서버 호환성)
+          fallback_url: `/uploads/project/mj/registImage/${firstImage.file_name}`
         } : null
       };
 
@@ -861,7 +867,9 @@ router.get('/products-with-entry-quantity', authMiddleware, async (req, res) => 
           created_at: firstImage.created_at,
           // 프록시 엔드포인트를 통해 이미지 제공 (CORS 문제 해결)
           url: `/api/warehouse/image/${firstImage.file_name}`,
-          thumbnail_url: `/api/warehouse/image/${firstImage.file_name}`
+          thumbnail_url: `/api/warehouse/image/${firstImage.file_name}`,
+          // 대체 URL도 제공 (상용서버 호환성)
+          fallback_url: `/uploads/project/mj/registImage/${firstImage.file_name}`
         } : null
       };
 
