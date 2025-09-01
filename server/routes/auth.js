@@ -75,13 +75,37 @@ router.post('/register', async (req, res) => {
 // Login
 router.post('/login', async (req, res) => {
   try {
+    console.log('🔐 [auth] 로그인 시도:', { username: req.body.username });
+    
     const { username, password } = req.body;
 
     // 필수 필드 검증
     if (!username || !password) {
+      console.log('❌ [auth] 필수 필드 누락:', { username: !!username, password: !!password });
       return res.status(400).json({ error: '사용자명과 비밀번호를 입력해주세요.' });
     }
 
+    // JWT_SECRET 확인
+    const jwtSecret = process.env.JWT_SECRET;
+    if (!jwtSecret) {
+      console.error('❌ [auth] JWT_SECRET 환경변수가 설정되지 않음');
+      return res.status(500).json({ 
+        error: '서버 설정 오류가 발생했습니다.',
+        details: process.env.NODE_ENV === 'development' ? 'JWT_SECRET 환경변수가 설정되지 않음' : '내부 서버 오류'
+      });
+    }
+
+    // 데이터베이스 연결 확인
+    if (!pool) {
+      console.error('❌ [auth] 데이터베이스 풀이 초기화되지 않음');
+      return res.status(500).json({ 
+        error: '데이터베이스 연결 오류가 발생했습니다.',
+        details: process.env.NODE_ENV === 'development' ? '데이터베이스 풀이 초기화되지 않음' : '내부 서버 오류'
+      });
+    }
+
+    console.log('🔍 [auth] 사용자 검색 시작:', username);
+    
     // 사용자 찾기
     const [users] = await pool.execute(
       'SELECT * FROM users WHERE username = ?',
@@ -89,23 +113,30 @@ router.post('/login', async (req, res) => {
     );
 
     if (users.length === 0) {
+      console.log('❌ [auth] 사용자를 찾을 수 없음:', username);
       return res.status(400).json({ error: '사용자명 또는 비밀번호가 올바르지 않습니다.' });
     }
 
     const user = users[0];
+    console.log('✅ [auth] 사용자 찾음:', { id: user.id, username: user.username, isAdmin: user.is_admin });
 
     // 비밀번호 확인
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
+      console.log('❌ [auth] 비밀번호 불일치:', username);
       return res.status(400).json({ error: '사용자명 또는 비밀번호가 올바르지 않습니다.' });
     }
+
+    console.log('✅ [auth] 비밀번호 확인 완료');
 
     // JWT 토큰 생성
     const token = jwt.sign(
       { userId: user.id, email: user.email, username: user.username, isAdmin: user.is_admin },
-      process.env.JWT_SECRET || 'your-secret-key',
+      jwtSecret,
       { expiresIn: '24h' }
     );
+
+    console.log('✅ [auth] JWT 토큰 생성 완료:', { userId: user.id, username: user.username });
 
     res.json({
       message: '로그인이 완료되었습니다!',
@@ -120,9 +151,39 @@ router.post('/login', async (req, res) => {
         partnerName: user.partner_name
       }
     });
+    
+    console.log('✅ [auth] 로그인 성공:', { userId: user.id, username: user.username });
+    
   } catch (error) {
-    console.error('로그인 오류:', error);
-    res.status(500).json({ error: '서버 오류가 발생했습니다.' });
+    console.error('❌ [auth] 로그인 오류:', {
+      message: error.message,
+      stack: error.stack,
+      code: error.code,
+      errno: error.errno,
+      sqlState: error.sqlState,
+      sqlMessage: error.sqlMessage
+    });
+    
+    // 데이터베이스 연결 오류인지 확인
+    if (error.code === 'ECONNREFUSED' || error.code === 'ENOTFOUND' || error.code === 'ETIMEDOUT') {
+      return res.status(500).json({ 
+        error: '데이터베이스 연결에 실패했습니다.',
+        details: process.env.NODE_ENV === 'development' ? error.message : '데이터베이스 연결 오류'
+      });
+    }
+    
+    // SQL 오류인지 확인
+    if (error.code && error.sqlState) {
+      return res.status(500).json({ 
+        error: '데이터베이스 오류가 발생했습니다.',
+        details: process.env.NODE_ENV === 'development' ? `${error.code}: ${error.sqlMessage}` : '내부 서버 오류'
+      });
+    }
+    
+    res.status(500).json({ 
+      error: '서버 오류가 발생했습니다.',
+      details: process.env.NODE_ENV === 'development' ? error.message : '내부 서버 오류'
+      });
   }
 });
 
