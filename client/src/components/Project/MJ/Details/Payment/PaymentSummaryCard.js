@@ -99,7 +99,6 @@ const PaymentSummaryCard = ({
                   ? 'border-orange-400 bg-orange-50 text-orange-900 focus:ring-orange-500 focus:border-orange-500' 
                   : 'border-orange-300 bg-white text-orange-900 focus:ring-orange-500 focus:border-orange-500'
               }`}
-              min={new Date().toISOString().split('T')[0]}
               placeholder="날짜 선택"
             />
           </div>
