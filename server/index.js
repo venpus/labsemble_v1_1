@@ -31,10 +31,11 @@ app.use(helmet());
 // CORS 설정 - 개발환경과 상용환경 모두 지원
 const corsOptions = {
   origin: function (origin, callback) {
-    // 개발환경
+    // 개발환경과 상용환경 모두 지원
     const allowedOrigins = [
       'http://localhost:3000', 
       'http://127.0.0.1:3000',
+      'http://localhost:5000',  // 개발서버 자체 origin 허용
       'https://labsemble.com',
       'https://www.labsemble.com'
     ];
@@ -44,7 +45,13 @@ const corsOptions = {
       callback(null, true);
     } else {
       console.log(`🚫 CORS 차단된 origin: ${origin}`);
-      callback(new Error('CORS 정책에 의해 차단되었습니다.'));
+      // 개발환경에서는 경고만 출력하고 허용
+      if (NODE_ENV === 'development') {
+        console.log(`⚠️ 개발환경에서 CORS origin 차단을 무시하고 허용: ${origin}`);
+        callback(null, true);
+      } else {
+        callback(new Error('CORS 정책에 의해 차단되었습니다.'));
+      }
     }
   },
   credentials: true,

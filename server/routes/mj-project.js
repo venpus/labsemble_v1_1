@@ -17,11 +17,18 @@ const router = express.Router();
 // 이미지 업로드를 위한 multer 설정
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
-    const uploadPath = 'uploads/project/mj/registImage';
+    // 절대 경로로 변경하여 상용서버에서도 작동하도록 수정
+    const uploadPath = path.join(__dirname, '..', 'uploads', 'project', 'mj', 'registImage');
     
     // 폴더가 없으면 생성
     if (!fs.existsSync(uploadPath)) {
-      fs.mkdirSync(uploadPath, { recursive: true });
+      try {
+        fs.mkdirSync(uploadPath, { recursive: true });
+        console.log(`✅ [mj-project] 업로드 디렉토리 생성: ${uploadPath}`);
+      } catch (error) {
+        console.error(`❌ [mj-project] 업로드 디렉토리 생성 실패: ${uploadPath}`, error);
+        return cb(error);
+      }
     }
     
     cb(null, uploadPath);
@@ -30,18 +37,27 @@ const storage = multer.diskStorage({
     // 파일명 중복 방지를 위해 타임스탬프 추가
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
     const ext = path.extname(file.originalname);
-    cb(null, 'mj-project-' + uniqueSuffix + ext);
+    const filename = 'mj-project-' + uniqueSuffix + ext;
+    console.log(`📁 [mj-project] 파일명 생성: ${filename}`);
+    cb(null, filename);
   }
 });
 
 // 제품 이미지 업로드를 위한 multer 설정
 const realImageStorage = multer.diskStorage({
   destination: function (req, file, cb) {
-    const uploadPath = 'uploads/project/mj/realImage';
+    // 절대 경로로 변경하여 상용서버에서도 작동하도록 수정
+    const uploadPath = path.join(__dirname, '..', 'uploads', 'project', 'mj', 'realImage');
     
     // 폴더가 없으면 생성
     if (!fs.existsSync(uploadPath)) {
-      fs.mkdirSync(uploadPath, { recursive: true });
+      try {
+        fs.mkdirSync(uploadPath, { recursive: true });
+        console.log(`✅ [mj-project] realImage 업로드 디렉토리 생성: ${uploadPath}`);
+      } catch (error) {
+        console.error(`❌ [mj-project] realImage 업로드 디렉토리 생성 실패: ${uploadPath}`, error);
+        return cb(error);
+      }
     }
     
     cb(null, uploadPath);
@@ -50,7 +66,9 @@ const realImageStorage = multer.diskStorage({
     // 파일명 중복 방지를 위해 타임스탬프 추가
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
     const ext = path.extname(file.originalname);
-    cb(null, 'mj-real-image-' + uniqueSuffix + ext);
+    const filename = 'mj-real-image-' + uniqueSuffix + ext;
+    console.log(`📁 [mj-project] realImage 파일명 생성: ${filename}`);
+    cb(null, filename);
   }
 });
 
@@ -67,7 +85,27 @@ const upload = multer({
       cb(new Error('이미지 파일만 업로드 가능합니다.'), false);
     }
   }
-});
+}).array('images', 10);
+
+// multer 에러 핸들링 미들웨어
+const handleMulterError = (req, res, next) => {
+  upload(req, res, (err) => {
+    if (err instanceof multer.MulterError) {
+      console.error('❌ [mj-project] Multer 에러:', err);
+      if (err.code === 'LIMIT_FILE_SIZE') {
+        return res.status(400).json({ error: '파일 크기가 너무 큽니다. 10MB 이하의 파일만 업로드 가능합니다.' });
+      } else if (err.code === 'LIMIT_FILE_COUNT') {
+        return res.status(400).json({ error: '파일 개수가 너무 많습니다. 최대 10개까지만 업로드 가능합니다.' });
+      } else {
+        return res.status(400).json({ error: `파일 업로드 오류: ${err.message}` });
+      }
+    } else if (err) {
+      console.error('❌ [mj-project] 파일 업로드 에러:', err);
+      return res.status(400).json({ error: err.message });
+    }
+    next();
+  });
+};
 
 const realImageUpload = multer({ 
   storage: realImageStorage,
@@ -85,10 +123,16 @@ const realImageUpload = multer({
 });
 
 // MJ 프로젝트 등록
-router.post('/register', authMiddleware, upload.array('images', 10), async (req, res) => {
+router.post('/register', authMiddleware, handleMulterError, async (req, res) => {
   const connection = await pool.getConnection();
   
   try {
+    console.log('🚀 [mj-project] 프로젝트 등록 시작:', {
+      body: req.body,
+      files: req.files ? req.files.length : 0,
+      user: req.user
+    });
+    
     await connection.beginTransaction();
     
     const { projectName, description, quantity, targetPrice, referenceLinks, selectedUserId } = req.body;
@@ -97,6 +141,13 @@ router.post('/register', authMiddleware, upload.array('images', 10), async (req,
     let projectOwnerId = req.user?.userId;  // 프로젝트 소유자 ID
     let projectCreatorId = req.user?.userId; // 프로젝트 등록자 ID
     let isAdminUser = req.user?.isAdmin;
+    
+    console.log('👤 [mj-project] 사용자 정보:', {
+      projectOwnerId,
+      projectCreatorId,
+      isAdminUser,
+      selectedUserId
+    });
     
     // JWT에서 admin 권한이 제대로 전달되지 않은 경우, 데이터베이스에서 직접 확인
     if (isAdminUser === undefined || isAdminUser === null) {
@@ -107,9 +158,10 @@ router.post('/register', authMiddleware, upload.array('images', 10), async (req,
         );
         if (adminCheck.length > 0) {
           isAdminUser = adminCheck[0].is_admin;
+          console.log('🔍 [mj-project] DB에서 admin 권한 확인:', isAdminUser);
         }
       } catch (error) {
-        console.error('admin 권한 확인 오류:', error);
+        console.error('❌ [mj-project] admin 권한 확인 오류:', error);
         isAdminUser = false;
       }
     }
@@ -117,6 +169,7 @@ router.post('/register', authMiddleware, upload.array('images', 10), async (req,
     if (selectedUserId && isAdminUser) {
       projectOwnerId = parseInt(selectedUserId);  // 문자열을 숫자로 변환
       projectCreatorId = req.user.userId; // 현재 로그인한 admin
+      console.log('👑 [mj-project] Admin 사용자로 프로젝트 등록:', { projectOwnerId, projectCreatorId });
     }
     
     // referenceLinks가 문자열인 경우 JSON으로 파싱
@@ -126,8 +179,9 @@ router.post('/register', authMiddleware, upload.array('images', 10), async (req,
         parsedReferenceLinks = typeof referenceLinks === 'string' 
           ? JSON.parse(referenceLinks) 
           : referenceLinks;
+        console.log('🔗 [mj-project] 참고링크 파싱 완료:', parsedReferenceLinks);
       } catch (error) {
-        console.error('참고링크 파싱 오류:', error);
+        console.error('❌ [mj-project] 참고링크 파싱 오류:', error);
         parsedReferenceLinks = [];
       }
     }
@@ -135,13 +189,24 @@ router.post('/register', authMiddleware, upload.array('images', 10), async (req,
     // 프로젝트 등록 데이터 준비 완료 // JWT에서 사용자 ID 추출 (인증 미들웨어 필요)
     
     if (!projectOwnerId) {
+      console.error('❌ [mj-project] 사용자 인증 실패: projectOwnerId 없음');
       return res.status(401).json({ error: '사용자 인증이 필요합니다.' });
     }
     
     // 필수 필드 검증
     if (!projectName || !quantity) {
+      console.error('❌ [mj-project] 필수 필드 누락:', { projectName, quantity });
       return res.status(400).json({ error: '프로젝트명과 수량은 필수입니다.' });
     }
+    
+    console.log('✅ [mj-project] 프로젝트 등록 데이터 검증 완료:', {
+      projectName,
+      description,
+      quantity,
+      targetPrice,
+      projectOwnerId,
+      projectCreatorId
+    });
     
     // 1. MJ 프로젝트 생성
     const [projectResult] = await connection.execute(
@@ -150,28 +215,41 @@ router.post('/register', authMiddleware, upload.array('images', 10), async (req,
     );
     
     const projectId = projectResult.insertId;
+    console.log('✅ [mj-project] 프로젝트 생성 완료, ID:', projectId);
     
     // 2. 참고링크 저장
     if (parsedReferenceLinks && parsedReferenceLinks.length > 0) {
+      console.log('🔗 [mj-project] 참고링크 저장 시작:', parsedReferenceLinks.length, '개');
       for (const link of parsedReferenceLinks) {
         await connection.execute(
           'INSERT INTO mj_project_reference_links (project_id, url) VALUES (?, ?)',
           [projectId, link.url]
         );
       }
+      console.log('✅ [mj-project] 참고링크 저장 완료');
     }
     
     // 3. 이미지 저장
     if (req.files && req.files.length > 0) {
+      console.log('🖼️ [mj-project] 이미지 저장 시작:', req.files.length, '개');
       for (const file of req.files) {
+        console.log('📁 [mj-project] 이미지 파일 정보:', {
+          filename: file.filename,
+          originalname: file.originalname,
+          path: file.path,
+          size: file.size
+        });
+        
         await connection.execute(
           'INSERT INTO mj_project_images (project_id, file_name, file_path, original_name) VALUES (?, ?, ?, ?)',
           [projectId, file.filename, file.filename, file.originalname]
         );
       }
+      console.log('✅ [mj-project] 이미지 저장 완료');
     }
     
     await connection.commit();
+    console.log('✅ [mj-project] 프로젝트 등록 트랜잭션 커밋 완료');
     
     res.status(201).json({
       message: 'MJ 프로젝트가 성공적으로 등록되었습니다.',
@@ -180,8 +258,16 @@ router.post('/register', authMiddleware, upload.array('images', 10), async (req,
     
   } catch (error) {
     await connection.rollback();
-    console.error('MJ 프로젝트 등록 오류:', error);
-    res.status(500).json({ error: '프로젝트 등록 중 오류가 발생했습니다.' });
+    console.error('❌ [mj-project] 프로젝트 등록 오류:', {
+      message: error.message,
+      stack: error.stack,
+      code: error.code,
+      errno: error.errno
+    });
+    res.status(500).json({ 
+      error: '프로젝트 등록 중 오류가 발생했습니다.',
+      details: process.env.NODE_ENV === 'development' ? error.message : '내부 서버 오류'
+    });
   } finally {
     connection.release();
   }
