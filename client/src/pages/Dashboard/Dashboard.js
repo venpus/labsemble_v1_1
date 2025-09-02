@@ -7,7 +7,7 @@ import UserManage from './Admin/UserManage';
 import ProjectLists from '../../components/Project/MJ/ProjectLists';
 import ProjectDetails from '../../components/Project/MJ/ProjectDetails';
 import { MJCalendar } from '../../components/Calendar';
-import { MJPackingList, MakePackingList, PackingListDetail, PackingListDateDetail, LogisticPayment } from '../../components/Logistic';
+import { MJPackingList, MakePackingList, PackingListDetail, PackingListDateDetail, LogisticPayment, PackingCodeDetailList } from '../../components/Logistic';
 import { Finance } from '../../components/Finance';
 
 const Dashboard = () => {
@@ -39,6 +39,9 @@ const Dashboard = () => {
     } else if (path.includes('/mj-calendar')) {
       console.log('🔍 [Dashboard] mj-calendar 감지');
       setSelectedMenu('mj-calendar');
+    } else if (path.includes('/mj-packing-list/packing-code-detail')) {
+      console.log('🔍 [Dashboard] mj-packing-list/packing-code-detail 감지:', path);
+      setSelectedMenu('mj-packing-list-packing-codes');
     } else if (path.includes('/mj-packing-list/create')) {
       console.log('🔍 [Dashboard] mj-packing-list/create 감지');
       setSelectedMenu('mj-packing-list-create');
@@ -92,6 +95,8 @@ const Dashboard = () => {
         return <PackingListDateDetail />;
       case 'mj-packing-list-logistic-payment':
         return <LogisticPayment />;
+      case 'mj-packing-list-packing-codes':
+        return <PackingCodeDetailList />;
       case 'finance':
         return <Finance />;
       case 'admin-dashboard':

@@ -576,76 +576,7 @@ router.get('/advance-payment', authMiddleware, async (req, res) => {
   try {
     const userId = req.user.userId;
     
-    // payment_status에서 advance가 true인 프로젝트들의 advance_payment 총합 조회
-    console.log(`[Finance] 선금 정보 조회 시작 - User: ${userId}`);
-    
-    // 디버깅: 먼저 해당 사용자의 모든 프로젝트와 payment_status 확인
-    const [debugRows] = await connection.execute(`
-      SELECT 
-        id,
-        project_name,
-        advance_payment,
-        payment_status,
-        JSON_TYPE(payment_status) as payment_status_type,
-        JSON_VALID(payment_status) as payment_status_valid
-      FROM mj_project 
-      WHERE user_id = ?
-    `, [userId]);
-    
-    // 디버깅: 전체 시스템의 모든 프로젝트 advance_payment 정보 확인
-    const [systemDebugRows] = await connection.execute(`
-      SELECT 
-        id,
-        project_name,
-        advance_payment,
-        payment_status,
-        user_id
-      FROM mj_project 
-      WHERE advance_payment IS NOT NULL
-        AND advance_payment != ''
-        AND advance_payment > 0
-    `);
-    
-    console.log(`[Finance] 시스템 전체 advance_payment 대상 프로젝트:`);
-    systemDebugRows.forEach((row, index) => {
-      console.log(`  ${index + 1}. 프로젝트 ID: ${row.id}, 이름: ${row.project_name}, 선금: ${row.advance_payment} CNY, 사용자: ${row.user_id}`);
-    });
-    
-    console.log(`[Finance] 디버깅: 사용자 ${userId}의 모든 프로젝트 정보:`);
-    debugRows.forEach((row, index) => {
-      console.log(`  ${index + 1}. 프로젝트 ID: ${row.id}, 이름: ${row.project_name}`);
-      console.log(`    - advance_payment: ${row.advance_payment} (타입: ${typeof row.advance_payment})`);
-      console.log(`    - payment_status: ${row.payment_status} (타입: ${row.payment_status_type}, 유효성: ${row.payment_status_valid})`);
-      
-      // payment_status가 JSON인 경우 파싱 시도
-      if (row.payment_status && row.payment_status_valid) {
-        try {
-          const parsedStatus = JSON.parse(row.payment_status);
-          console.log(`    - 파싱된 payment_status:`, parsedStatus);
-          console.log(`    - advance 키 존재: ${'advance' in parsedStatus}`);
-          console.log(`    - advance 값: ${parsedStatus.advance}`);
-          console.log(`    - advance === true: ${parsedStatus.advance === true}`);
-        } catch (parseError) {
-          console.log(`    - JSON 파싱 실패:`, parseError.message);
-        }
-      }
-    });
-    
-    // 먼저 개별 프로젝트의 advance_payment 정보를 조회하여 상세 로그 출력 (전체 시스템 기준)
-    const [detailRows] = await connection.execute(`
-      SELECT 
-        id,
-        project_name,
-        advance_payment,
-        payment_status,
-        user_id
-      FROM mj_project 
-      WHERE advance_payment IS NOT NULL
-        AND advance_payment != ''
-        AND advance_payment > 0
-    `);
-    
-    // 모든 프로젝트의 advance_payment 총합 조회 (전체 시스템 기준)
+    // 모든 프로젝트의 advance_payment 총합 조회
     const [rows] = await connection.execute(`
       SELECT 
         SUM(CAST(advance_payment AS DECIMAL(15,2))) as total_advance_payment,
@@ -656,75 +587,13 @@ router.get('/advance-payment', authMiddleware, async (req, res) => {
         AND advance_payment > 0
     `);
     
-    console.log(`[Finance] advance_payment 대상 프로젝트 상세 정보:`);
-    detailRows.forEach((row, index) => {
-      console.log(`  ${index + 1}. 프로젝트 ID: ${row.id}, 이름: ${row.project_name}, 선금: ${row.advance_payment} CNY, payment_status: ${JSON.stringify(row.payment_status)}`);
-    });
+    const totalAdvancePayment = rows[0]?.total_advance_payment ?? 0;
+    const projectCount = rows[0]?.project_count ?? 0;
     
-    // 대안 쿼리로도 시도해보기
-    console.log(`[Finance] 대안 쿼리 시도...`);
-    
-    // 방법 1: 모든 프로젝트의 advance_payment 합계 (기본 쿼리와 동일)
-    const [altRows1] = await connection.execute(`
-      SELECT 
-        SUM(CAST(advance_payment AS DECIMAL(15,2))) as total_advance_payment,
-        COUNT(*) as project_count
-      FROM mj_project 
-      WHERE advance_payment IS NOT NULL
-        AND advance_payment != ''
-        AND advance_payment > 0
-    `);
-    
-    console.log(`[Finance] 대안 쿼리 1 결과 (모든 프로젝트):`, altRows1[0]);
-    
-    // 방법 2: advance_payment가 0보다 큰 모든 프로젝트
-    const [altRows2] = await connection.execute(`
-      SELECT 
-        SUM(CAST(advance_payment AS DECIMAL(15,2))) as total_advance_payment,
-        COUNT(*) as project_count
-      FROM mj_project 
-      WHERE advance_payment > 0
-    `);
-    
-    console.log(`[Finance] 대안 쿼리 2 결과 (advance_payment > 0):`, altRows2[0]);
-    
-    // 가장 성공적인 쿼리 결과 사용
-    let finalTotalAdvancePayment = 0;
-    let finalProjectCount = 0;
-    
-    if (rows[0]?.total_advance_payment > 0) {
-      finalTotalAdvancePayment = rows[0].total_advance_payment;
-      finalProjectCount = rows[0].project_count;
-      console.log(`[Finance] 원본 쿼리 사용: ${finalTotalAdvancePayment} KRW`);
-    } else if (altRows1[0]?.total_advance_payment > 0) {
-      finalTotalAdvancePayment = altRows1[0].total_advance_payment;
-      finalProjectCount = altRows1[0].project_count;
-      console.log(`[Finance] 대안 쿼리 1 사용 (모든 프로젝트): ${finalTotalAdvancePayment} CNY`);
-    } else if (altRows2[0]?.total_advance_payment > 0) {
-      finalTotalAdvancePayment = altRows2[0].total_advance_payment;
-      finalProjectCount = altRows2[0].project_count;
-      console.log(`[Finance] 대안 쿼리 2 사용 (advance_payment > 0): ${finalTotalAdvancePayment} CNY`);
-    } else {
-      console.log(`[Finance] 모든 쿼리에서 결과 없음`);
-    }
-    
-    const totalAdvancePayment = finalTotalAdvancePayment ?? 0;
-    const projectCount = finalProjectCount ?? 0;
-    
-    console.log(`[Finance] 선금 계산 결과:`);
-    console.log(`  - 총 프로젝트 수: ${projectCount}`);
-    console.log(`  - 총 선금 (CNY): ${totalAdvancePayment}`);
-    console.log(`  - 데이터 타입 확인: totalAdvancePayment type = ${typeof totalAdvancePayment}`);
-    console.log(`  - NULL 체크: totalAdvancePayment === null = ${totalAdvancePayment === null}`);
-    console.log(`  - undefined 체크: totalAdvancePayment === undefined = ${totalAdvancePayment === undefined}`);
-    
-    // 응답 데이터 구조 확인 (CNY 단위로 직접 반환, null 값은 0으로 변환)
     const responseData = {
       totalAdvancePayment: Number(totalAdvancePayment ?? 0),
       projectCount: projectCount ?? 0
     };
-    
-    console.log(`[Finance] 응답 데이터 구조:`, responseData);
     
     devLog(`[Finance] 선금 정보 조회 성공 - User: ${userId}, Total: ${totalAdvancePayment} CNY, Projects: ${projectCount}`);
     
@@ -753,8 +622,6 @@ router.get('/total-amount', authMiddleware, async (req, res) => {
   try {
     const userId = req.user.userId;
     
-    console.log(`[Finance] 총 거래금액 정보 조회 시작 - User: ${userId}`);
-    
     // 전체 시스템의 모든 프로젝트 total_amount 합계 조회
     const [rows] = await connection.execute(`
       SELECT 
@@ -769,37 +636,10 @@ router.get('/total-amount', authMiddleware, async (req, res) => {
     const totalTransactionAmount = rows[0]?.total_transaction_amount ?? 0;
     const projectCount = rows[0]?.project_count ?? 0;
     
-    console.log(`[Finance] 총 거래금액 계산 결과:`);
-    console.log(`  - 총 프로젝트 수: ${projectCount}`);
-    console.log(`  - 총 거래금액 (CNY): ${totalTransactionAmount}`);
-    console.log(`  - 데이터 타입 확인: totalTransactionAmount type = ${typeof totalTransactionAmount}`);
-    
-    // 개별 프로젝트 정보도 로그로 출력
-    const [detailRows] = await connection.execute(`
-      SELECT 
-        id,
-        project_name,
-        total_amount,
-        user_id
-      FROM mj_project 
-      WHERE total_amount IS NOT NULL
-        AND total_amount != ''
-        AND total_amount > 0
-      ORDER BY total_amount DESC
-      LIMIT 10
-    `);
-    
-    console.log(`[Finance] 상위 10개 프로젝트 total_amount 정보:`);
-    detailRows.forEach((row, index) => {
-      console.log(`  ${index + 1}. 프로젝트 ID: ${row.id}, 이름: ${row.project_name}, 총액: ${row.total_amount} CNY, 사용자: ${row.user_id}`);
-    });
-    
     const responseData = {
       totalTransactionAmount: Number(totalTransactionAmount ?? 0),
       projectCount: projectCount ?? 0
     };
-    
-    console.log(`[Finance] 응답 데이터 구조:`, responseData);
     
     devLog(`[Finance] 총 거래금액 정보 조회 성공 - User: ${userId}, Total: ${totalTransactionAmount} CNY, Projects: ${projectCount}`);
     
@@ -823,8 +663,6 @@ router.get('/total-fee', authMiddleware, async (req, res) => {
   try {
     const userId = req.user.userId;
     
-    console.log(`[Finance] 총 balance_amount 정보 조회 시작 - User: ${userId}`);
-    
     // 전체 시스템의 모든 프로젝트 balance_amount 합계 조회
     const [rows] = await connection.execute(`
       SELECT 
@@ -839,74 +677,10 @@ router.get('/total-fee', authMiddleware, async (req, res) => {
     const totalFeeAmount = rows[0]?.total_fee_amount ?? 0;
     const projectCount = rows[0]?.project_count ?? 0;
     
-    console.log(`[Finance] 총 balance_amount 계산 결과:`);
-    console.log(`  - 총 프로젝트 수: ${projectCount}`);
-    console.log(`  - 총 balance_amount (CNY): ${totalFeeAmount}`);
-    console.log(`  - 데이터 타입 확인: totalFeeAmount type = ${typeof totalFeeAmount}`);
-    
-    // 개별 프로젝트의 balance_amount 상세 정보 로그
-    console.log(`[Finance] 개별 프로젝트 balance_amount 상세 정보:`);
-    const [detailBalanceRows] = await connection.execute(`
-      SELECT 
-        id,
-        project_name,
-        fee,
-        factory_shipping_cost,
-        additional_cost_items,
-        balance_amount
-      FROM mj_project 
-      WHERE balance_amount IS NOT NULL
-        AND balance_amount != ''
-        AND balance_amount > 0
-      ORDER BY balance_amount DESC
-      LIMIT 5
-    `);
-    
-    detailBalanceRows.forEach((row, index) => {
-      let additionalCosts = 0;
-      try {
-        if (row.additional_cost_items && row.additional_cost_items !== '[]') {
-          const items = JSON.parse(row.additional_cost_items);
-          additionalCosts = items.reduce((sum, item) => sum + (Number(item.cost) || 0), 0);
-        }
-      } catch (error) {
-        console.error(`프로젝트 ${row.id} 추가비용 파싱 오류:`, error);
-      }
-      
-      const expectedBalance = Number(row.fee || 0) + Number(row.factory_shipping_cost || 0) + additionalCosts;
-      
-      console.log(`  ${index + 1}. 프로젝트 ID: ${row.id}, 이름: ${row.project_name}`);
-      console.log(`    - fee: ${row.fee}, 배송비: ${row.factory_shipping_cost}, 추가비용: ${additionalCosts}`);
-      console.log(`    - 예상 balance_amount: ${expectedBalance}, 실제 balance_amount: ${row.balance_amount}`);
-      console.log(`    - 차이: ${expectedBalance - Number(row.balance_amount)}`);
-    });
-    
-    // 개별 프로젝트 정보도 로그로 출력
-    const [detailRows] = await connection.execute(`
-      SELECT 
-        id,
-        project_name,
-        balance_amount,
-        user_id
-      FROM mj_project 
-      WHERE balance_amount IS NOT NULL
-        AND balance_amount != ''
-        AND balance_amount > 0
-      ORDER BY balance_amount DESC
-      LIMIT 10
-    `);
-    
-    console.log(`[Finance] 상위 10개 프로젝트 balance_amount 정보:`);
-    detailRows.forEach((row, index) => {
-      console.log(`  ${index + 1}. 프로젝트 ID: ${row.id}, 이름: ${row.project_name}, balance_amount: ${row.balance_amount} CNY, 사용자: ${row.user_id}`);
-    });
-    
     const responseData = {
       totalFeeAmount: Number(totalFeeAmount ?? 0),
       projectCount: projectCount ?? 0
     };
-    
-    console.log(`[Finance] 응답 데이터 구조:`, responseData);
     
     devLog(`[Finance] 총 balance_amount 정보 조회 성공 - User: ${userId}, Total: ${totalFeeAmount} CNY, Projects: ${projectCount}`);
     
@@ -930,8 +704,6 @@ router.get('/unpaid-advance', authMiddleware, async (req, res) => {
   try {
     const userId = req.user.userId;
     
-    console.log(`[Finance] 미지급 선금 정보 조회 시작 - User: ${userId}`);
-    
     // payment_status.advance = false인 프로젝트들의 advance_payment 합계 조회
     const [rows] = await connection.execute(`
       SELECT 
@@ -947,71 +719,10 @@ router.get('/unpaid-advance', authMiddleware, async (req, res) => {
     const totalUnpaidAdvance = rows[0]?.total_unpaid_advance ?? 0;
     const projectCount = rows[0]?.project_count ?? 0;
     
-    console.log(`[Finance] 미지급 선금 계산 결과:`);
-    console.log(`  - 총 프로젝트 수: ${projectCount}`);
-    console.log(`  - 총 미지급 선금 (CNY): ${totalUnpaidAdvance}`);
-    console.log(`  - 데이터 타입 확인: totalUnpaidAdvance type = ${typeof totalUnpaidAdvance}`);
-    console.log(`  - 참고: payment_status.advance = false인 프로젝트들의 advance_payment 합계`);
-    
-    // 디버깅: payment_status 구조 확인
-    console.log(`[Finance] payment_status 구조 디버깅 시작...`);
-    const [debugRows] = await connection.execute(`
-      SELECT 
-        id,
-        project_name,
-        advance_payment,
-        payment_status,
-        JSON_TYPE(payment_status) as payment_status_type,
-        JSON_VALID(payment_status) as payment_status_valid,
-        JSON_EXTRACT(payment_status, '$.advance') as extracted_advance
-      FROM mj_project 
-      WHERE advance_payment IS NOT NULL
-        AND advance_payment != ''
-        AND advance_payment > 0
-      LIMIT 5
-    `);
-    
-    console.log(`[Finance] payment_status 구조 샘플 (상위 5개):`);
-    debugRows.forEach((row, index) => {
-      console.log(`  ${index + 1}. 프로젝트 ID: ${row.id}, 이름: ${row.project_name}`);
-      console.log(`    - advance_payment: ${row.advance_payment}`);
-      console.log(`    - payment_status: ${row.payment_status}`);
-      console.log(`    - JSON 타입: ${row.payment_status_type}, 유효성: ${row.payment_status_valid}`);
-      console.log(`    - JSON_EXTRACT 결과: ${row.extracted_advance}`);
-      console.log(`    - extracted_advance === false: ${row.extracted_advance === false}`);
-      console.log(`    - extracted_advance === 'false': ${row.extracted_advance === 'false'}`);
-      console.log(`    - extracted_advance === 0: ${row.extracted_advance === 0}`);
-    });
-    
-    // 개별 프로젝트 정보도 로그로 출력
-    const [detailRows] = await connection.execute(`
-      SELECT 
-        id,
-        project_name,
-        advance_payment,
-        payment_status,
-        user_id
-      FROM mj_project 
-      WHERE JSON_EXTRACT(payment_status, '$.advance') = false
-        AND advance_payment IS NOT NULL
-        AND advance_payment != ''
-        AND advance_payment > 0
-      ORDER BY advance_payment DESC
-      LIMIT 10
-    `);
-    
-    console.log(`[Finance] 상위 10개 미지급 선금 프로젝트 정보:`);
-    detailRows.forEach((row, index) => {
-      console.log(`  ${index + 1}. 프로젝트 ID: ${row.id}, 이름: ${row.project_name}, 미지급 선금: ${row.advance_payment} CNY, payment_status: ${JSON.stringify(row.payment_status)}, 사용자: ${row.user_id}`);
-    });
-    console.log(`  - 참고: payment_status.advance = false인 프로젝트들의 advance_payment 표시`);
-    
     const responseData = {
       totalUnpaidAdvance: Number(totalUnpaidAdvance ?? 0),
       projectCount: projectCount ?? 0
     };
-    
-    console.log(`[Finance] 응답 데이터 구조:`, responseData);
     
     devLog(`[Finance] 미지급 선금 정보 조회 성공 - User: ${userId}, Total: ${totalUnpaidAdvance} CNY, Projects: ${projectCount} (payment_status.advance = false)`);
     
@@ -1035,8 +746,6 @@ router.get('/unpaid-balance', authMiddleware, async (req, res) => {
   try {
     const userId = req.user.userId;
     
-    console.log(`[Finance] 미지급 잔금 정보 조회 시작 - User: ${userId}`);
-    
     // payment_status.balance = false인 프로젝트들의 balance_amount 합계 조회
     const [rows] = await connection.execute(`
       SELECT 
@@ -1052,71 +761,10 @@ router.get('/unpaid-balance', authMiddleware, async (req, res) => {
     const totalUnpaidBalance = rows[0]?.total_unpaid_balance ?? 0;
     const projectCount = rows[0]?.project_count ?? 0;
     
-    console.log(`[Finance] 미지급 잔금 계산 결과:`);
-    console.log(`  - 총 프로젝트 수: ${projectCount}`);
-    console.log(`  - 총 미지급 잔금 (CNY): ${totalUnpaidBalance}`);
-    console.log(`  - 데이터 타입 확인: totalUnpaidBalance type = ${typeof totalUnpaidBalance}`);
-    console.log(`  - 참고: payment_status.balance = false인 프로젝트들의 fee 합계`);
-    
-    // 디버깅: payment_status 구조 확인
-    console.log(`[Finance] payment_status.balance 구조 디버깅 시작...`);
-    const [debugRows] = await connection.execute(`
-      SELECT 
-        id,
-        project_name,
-        balance_amount,
-        payment_status,
-        JSON_TYPE(payment_status) as payment_status_type,
-        JSON_VALID(payment_status) as payment_status_valid,
-        JSON_EXTRACT(payment_status, '$.balance') as extracted_balance
-      FROM mj_project 
-      WHERE balance_amount IS NOT NULL
-        AND balance_amount != ''
-        AND balance_amount > 0
-      LIMIT 5
-    `);
-    
-    console.log(`[Finance] payment_status.balance 구조 샘플 (상위 5개):`);
-    debugRows.forEach((row, index) => {
-      console.log(`  ${index + 1}. 프로젝트 ID: ${row.id}, 이름: ${row.project_name}`);
-      console.log(`    - balance_amount: ${row.balance_amount}`);
-      console.log(`    - payment_status: ${row.payment_status}`);
-      console.log(`    - JSON 타입: ${row.payment_status_type}, 유효성: ${row.payment_status_valid}`);
-      console.log(`    - JSON_EXTRACT 결과: ${row.extracted_balance}`);
-      console.log(`    - extracted_balance === false: ${row.extracted_balance === false}`);
-      console.log(`    - extracted_balance === 'false': ${row.extracted_balance === 'false'}`);
-      console.log(`    - extracted_balance === 0: ${row.extracted_balance === 0}`);
-    });
-    
-    // 개별 프로젝트 정보도 로그로 출력
-    const [detailRows] = await connection.execute(`
-      SELECT 
-        id,
-        project_name,
-        balance_amount,
-        payment_status,
-        user_id
-      FROM mj_project 
-      WHERE JSON_EXTRACT(payment_status, '$.balance') = false
-        AND balance_amount IS NOT NULL
-        AND balance_amount != ''
-        AND balance_amount > 0
-      ORDER BY balance_amount DESC
-      LIMIT 10
-    `);
-    
-    console.log(`[Finance] 상위 10개 미지급 잔금 프로젝트 정보:`);
-    detailRows.forEach((row, index) => {
-      console.log(`  ${index + 1}. 프로젝트 ID: ${row.id}, 이름: ${row.project_name}, 미지급 잔금: ${row.balance_amount} CNY, payment_status: ${JSON.stringify(row.payment_status)}, 사용자: ${row.user_id}`);
-    });
-    console.log(`  - 참고: payment_status.balance = false인 프로젝트들의 balance_amount 표시`);
-    
     const responseData = {
       totalUnpaidBalance: Number(totalUnpaidBalance ?? 0),
       projectCount: projectCount ?? 0
     };
-    
-    console.log(`[Finance] 응답 데이터 구조:`, responseData);
     
     devLog(`[Finance] 미지급 잔금 정보 조회 성공 - User: ${userId}, Total: ${totalUnpaidBalance} CNY, Projects: ${projectCount} (payment_status.balance = false)`);
     
@@ -1140,8 +788,6 @@ router.get('/advance-payment-schedule', authMiddleware, async (req, res) => {
   try {
     const userId = req.user.userId;
     
-    console.log(`[Finance] 지급 예정 선금 정보 조회 시작 - User: ${userId}`);
-    
     // 지급 예정 선금 조회 (payment_status.advance = false)
     const [rows] = await connection.execute(`
       SELECT 
@@ -1157,38 +803,10 @@ router.get('/advance-payment-schedule', authMiddleware, async (req, res) => {
     const totalAdvancePaymentSchedule = rows[0]?.total_advance_payment_schedule ?? 0;
     const projectCount = rows[0]?.project_count ?? 0;
     
-    console.log(`[Finance] 지급 예정 선금 계산 결과:`);
-    console.log(`  - 총 프로젝트 수: ${projectCount}`);
-    console.log(`  - 총 지급 예정 선금 (CNY): ${totalAdvancePaymentSchedule}`);
-    console.log(`  - 참고: payment_status.advance = false인 프로젝트들의 advance_payment 합계`);
-    
-    // 상세 프로젝트 정보도 조회
-    const [detailRows] = await connection.execute(`
-      SELECT 
-        id,
-        project_name,
-        advance_payment,
-        payment_status
-      FROM mj_project 
-      WHERE JSON_EXTRACT(payment_status, '$.advance') = false
-        AND advance_payment IS NOT NULL
-        AND advance_payment != ''
-        AND advance_payment > 0
-      ORDER BY advance_payment DESC
-    `);
-    
-    console.log(`[Finance] 지급 예정 선금 프로젝트 상세 정보:`);
-    detailRows.forEach((row, index) => {
-      console.log(`  ${index + 1}. 프로젝트 ID: ${row.id}, 이름: ${row.project_name}, 선금: ${row.advance_payment} CNY`);
-    });
-    
     const responseData = {
       totalAdvancePaymentSchedule: Number(totalAdvancePaymentSchedule ?? 0),
-      projectCount: projectCount ?? 0,
-      projects: detailRows
+      projectCount: projectCount ?? 0
     };
-    
-    console.log(`[Finance] 응답 데이터 구조:`, responseData);
     
     devLog(`[Finance] 지급 예정 선금 정보 조회 성공 - User: ${userId}, Total: ${totalAdvancePaymentSchedule} CNY, Projects: ${projectCount}`);
     
@@ -1218,8 +836,6 @@ router.get('/balance-payment-schedule', authMiddleware, async (req, res) => {
   try {
     const userId = req.user.userId;
     
-    console.log(`[Finance] 잔금 지급 예정 정보 조회 시작 - User: ${userId}`);
-    
     // 잔금 지급 예정 조회 (payment_status.balance = false)
     const [rows] = await connection.execute(`
       SELECT 
@@ -1235,38 +851,10 @@ router.get('/balance-payment-schedule', authMiddleware, async (req, res) => {
     const totalBalancePaymentSchedule = rows[0]?.total_balance_payment_schedule ?? 0;
     const projectCount = rows[0]?.project_count ?? 0;
     
-    console.log(`[Finance] 잔금 지급 예정 계산 결과:`);
-    console.log(`  - 총 프로젝트 수: ${projectCount}`);
-    console.log(`  - 총 잔금 지급 예정 (CNY): ${totalBalancePaymentSchedule}`);
-    console.log(`  - 참고: payment_status.balance = false인 프로젝트들의 balance_amount 합계`);
-    
-    // 상세 프로젝트 정보도 조회
-    const [detailRows] = await connection.execute(`
-      SELECT 
-        id,
-        project_name,
-        balance_amount,
-        payment_status
-      FROM mj_project 
-      WHERE JSON_EXTRACT(payment_status, '$.balance') = false
-        AND balance_amount IS NOT NULL
-        AND balance_amount != ''
-        AND balance_amount > 0
-      ORDER BY balance_amount DESC
-    `);
-    
-    console.log(`[Finance] 잔금 지급 예정 프로젝트 상세 정보:`);
-    detailRows.forEach((row, index) => {
-      console.log(`  ${index + 1}. 프로젝트 ID: ${row.id}, 이름: ${row.project_name}, 잔금: ${row.balance_amount} CNY`);
-    });
-    
     const responseData = {
       totalBalancePaymentSchedule: Number(totalBalancePaymentSchedule ?? 0),
-      projectCount: projectCount ?? 0,
-      projects: detailRows
+      projectCount: projectCount ?? 0
     };
-    
-    console.log(`[Finance] 응답 데이터 구조:`, responseData);
     
     devLog(`[Finance] 잔금 지급 예정 정보 조회 성공 - User: ${userId}, Total: ${totalBalancePaymentSchedule} CNY, Projects: ${projectCount}`);
     
@@ -1282,6 +870,174 @@ router.get('/balance-payment-schedule', authMiddleware, async (req, res) => {
     res.status(500).json({
       success: false,
       message: '잔금 지급 예정 정보 조회 중 오류가 발생했습니다.',
+      error: error.message
+    });
+  } finally {
+    connection.release();
+  }
+});
+
+// mj_project에서 Payment 지급일 데이터를 Finance 장부 형식으로 조회
+router.get('/payment-schedule', authMiddleware, async (req, res) => {
+  const connection = await pool.getConnection();
+  
+  try {
+    const userId = req.user.userId;
+    
+    // mj_project_payments에서 결제 완료된 데이터 조회
+    const [rows] = await connection.execute(`
+      SELECT 
+        mpp.project_id,
+        mp.project_name,
+        mpp.payment_status,
+        mpp.payment_dates,
+        mpp.payment_amounts
+      FROM mj_project_payments mpp
+      JOIN mj_project mp ON mpp.project_id = mp.id
+      WHERE mpp.payment_status IS NOT NULL
+        AND mpp.payment_dates IS NOT NULL
+        AND mpp.payment_amounts IS NOT NULL
+        AND JSON_VALID(mpp.payment_status) = 1
+        AND JSON_VALID(mpp.payment_dates) = 1
+        AND JSON_VALID(mpp.payment_amounts) = 1
+      ORDER BY mpp.project_id DESC
+    `);
+    
+    // mj_project에서 payment_status.balance가 true인 데이터도 추가 조회
+    const [mjProjectRows] = await connection.execute(`
+      SELECT 
+        id as project_id,
+        project_name,
+        payment_dates,
+        balance_amount,
+        payment_status
+      FROM mj_project 
+      WHERE payment_dates IS NOT NULL
+        AND payment_dates != '{}'
+        AND payment_dates != '[]'
+        AND JSON_VALID(payment_dates) = 1
+        AND JSON_VALID(payment_status) = 1
+        AND JSON_EXTRACT(payment_status, '$.balance') = true
+        AND balance_amount IS NOT NULL
+        AND balance_amount > 0
+      ORDER BY id DESC
+    `);
+    
+    // Payment 지급일 데이터를 Finance 장부 형식으로 변환
+    const paymentTransactions = [];
+    
+    rows.forEach(row => {
+      try {
+        const paymentStatus = JSON.parse(row.payment_status);
+        const paymentDates = JSON.parse(row.payment_dates);
+        const paymentAmounts = JSON.parse(row.payment_amounts);
+        
+        // 각 결제 유형별로 확인 (advance, interim1, interim2, interim3, balance)
+        const paymentTypes = ['advance', 'interim1', 'interim2', 'interim3', 'balance'];
+        
+        paymentTypes.forEach(paymentType => {
+          // payment_status가 true이고, payment_date가 있고, amount가 0보다 큰 경우만 표시
+          if (paymentStatus[paymentType] === true && 
+              paymentDates[paymentType] && 
+              paymentAmounts[paymentType] > 0) {
+            
+            // 결제 유형별 카테고리 설정 (업체 결제 형식)
+            let category = '';
+            switch (paymentType) {
+              case 'advance':
+                category = '업체 선금';
+                break;
+              case 'interim1':
+                category = '업체 중도금1';
+                break;
+              case 'interim2':
+                category = '업체 중도금2';
+                break;
+              case 'interim3':
+                category = '업체 중도금3';
+                break;
+              case 'balance':
+                category = '업체 잔금';
+                break;
+            }
+            
+            paymentTransactions.push({
+              id: `mj-${paymentType}-${row.project_id}`,
+              date: paymentDates[paymentType],
+              description: `${row.project_name} - ${category}`,
+              category: category,
+              amount: -Number(paymentAmounts[paymentType]), // 지출이므로 음수
+              type: 'expense',
+              reference: `MJ-${row.project_id}`,
+              notes: '', // 비고 내용 비워둠
+              project_id: row.project_id,
+              project_name: row.project_name,
+              payment_type: paymentType,
+              is_paid: true
+            });
+          }
+        });
+        
+      } catch (error) {
+        console.error(`[Finance] 프로젝트 ${row.project_id} JSON 파싱 오류:`, error);
+      }
+    });
+    
+    // mj_project 테이블의 balance 결제 완료 데이터 처리
+    mjProjectRows.forEach(project => {
+      try {
+        const paymentDates = JSON.parse(project.payment_dates);
+        const paymentStatus = JSON.parse(project.payment_status || '{}');
+        
+        // 잔금 지급일이 있고 payment_status.balance가 true인 경우만 표시
+        if (paymentDates.balance && project.balance_amount > 0 && paymentStatus.balance === true) {
+          paymentTransactions.push({
+            id: `mj-balance-legacy-${project.project_id}`,
+            date: paymentDates.balance,
+            description: `${project.project_name} - 잔금 지급`,
+            category: '잔금 지급',
+            amount: -Number(project.balance_amount), // 지출이므로 음수
+            type: 'expense',
+            reference: `MJ-${project.project_id}`,
+            notes: '', // 비고 내용 비워둠
+            project_id: project.project_id,
+            project_name: project.project_name,
+            payment_type: 'balance',
+            is_paid: true // payment_status.balance가 true이므로 지급 완료
+          });
+        }
+        
+      } catch (error) {
+        console.error(`[Finance] 프로젝트 ${project.project_id} JSON 파싱 오류:`, error);
+      }
+    });
+    
+    // 날짜순으로 정렬
+    paymentTransactions.sort((a, b) => new Date(a.date) - new Date(b.date));
+    
+    const responseData = {
+      transactions: paymentTransactions,
+      total_count: paymentTransactions.length,
+      advance_count: paymentTransactions.filter(t => t.payment_type === 'advance').length,
+      balance_count: paymentTransactions.filter(t => t.payment_type === 'balance').length,
+      paid_count: paymentTransactions.filter(t => t.is_paid).length,
+      unpaid_count: paymentTransactions.filter(t => !t.is_paid).length
+    };
+    
+    devLog(`[Finance] 결제 데이터 조회 성공 - User: ${userId}, mj_project_payments: ${rows.length}, mj_project: ${mjProjectRows.length}, Total Transactions: ${paymentTransactions.length}`);
+    
+    res.json({
+      success: true,
+      message: 'Payment 지급일 데이터를 성공적으로 조회했습니다.',
+      data: responseData
+    });
+    
+  } catch (error) {
+    errorLog(`[Finance] Payment 지급일 데이터 조회 실패: ${error.message}`);
+    
+    res.status(500).json({
+      success: false,
+      message: 'Payment 지급일 데이터 조회 중 오류가 발생했습니다.',
       error: error.message
     });
   } finally {

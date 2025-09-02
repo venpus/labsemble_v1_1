@@ -14,6 +14,9 @@ const { devLog, errorLog } = require('../utils/logger');
 
 const router = express.Router();
 
+// Payment 지급일 데이터는 이제 Finance API에서 mj_project 테이블을 직접 읽어와서 표시
+// 기존의 자동 동기화 로직은 제거됨
+
 // 이미지 업로드를 위한 multer 설정
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
@@ -982,19 +985,7 @@ router.post('/:id/payment', authMiddleware, async (req, res) => {
     
     const numericBalanceAmount = numericFee + numericFactoryShippingCost + totalAdditionalCosts;
     
-    // balance_amount 계산 디버깅 로그
-    console.log('🔢 [서버] balance_amount 계산 과정:', {
-      프로젝트ID: projectId,
-      수수료: numericFee,
-      배송비: numericFactoryShippingCost,
-      추가비용: totalAdditionalCosts,
-      계산된_잔금: numericBalanceAmount,
-      원본_데이터: {
-        fee: req.body.fee,
-        factory_shipping_cost: req.body.factory_shipping_cost,
-        additional_cost_items: req.body.additional_cost_items
-      }
-    });
+    // balance_amount 계산 완료
 
     // Payment 데이터 업데이트
     await connection.execute(
@@ -1033,6 +1024,8 @@ router.post('/:id/payment', authMiddleware, async (req, res) => {
         projectId
       ]
     );
+
+    // Payment 지급일 데이터는 이제 Finance API에서 mj_project 테이블을 직접 읽어와서 표시
     
 
     
@@ -1593,6 +1586,236 @@ router.get('/advance-payment-schedule', authMiddleware, async (req, res) => {
     });
   } finally {
     connection.release();
+  }
+});
+
+// MJ 프로젝트 결제 정보 저장 API
+router.post('/:id/payment-to-supplier', authMiddleware, async (req, res) => {
+  console.log('🔍 [DEBUG] POST /api/mj-project/:id/payment-to-supplier 엔드포인트 호출됨');
+  console.log('🔍 [DEBUG] req.params:', req.params);
+  console.log('🔍 [DEBUG] req.user:', req.user);
+  console.log('🔍 [DEBUG] req.body:', req.body);
+  
+  const connection = await pool.getConnection();
+  
+  try {
+    const projectId = req.params.id;
+    const userId = req.user.userId;
+    const { paymentData } = req.body;
+    
+    console.log('🔍 [DEBUG] projectId:', projectId, 'userId:', userId, 'paymentData:', paymentData);
+
+    if (!paymentData) {
+      console.log('🔍 [DEBUG] 결제 데이터가 없음 - 400 응답 반환');
+      return res.status(400).json({
+        success: false,
+        message: '결제 데이터가 필요합니다.'
+      });
+    }
+
+    // 프로젝트 존재 여부 확인 (Admin은 모든 프로젝트 조회 가능)
+    console.log('🔍 [DEBUG] 프로젝트 존재 여부 확인 중...');
+    console.log('🔍 [DEBUG] req.user.isAdmin:', req.user.isAdmin);
+    
+    let projectRows;
+    if (req.user.isAdmin) {
+      // Admin은 모든 프로젝트 조회 가능
+      console.log('🔍 [DEBUG] Admin 권한으로 프로젝트 조회');
+      [projectRows] = await connection.execute(
+        'SELECT id FROM mj_project WHERE id = ?',
+        [projectId]
+      );
+    } else {
+      // 일반 사용자는 자신의 프로젝트만 조회 가능
+      console.log('🔍 [DEBUG] 일반 사용자 권한으로 프로젝트 조회');
+      [projectRows] = await connection.execute(
+        'SELECT id FROM mj_project WHERE id = ? AND user_id = ?',
+        [projectId, userId]
+      );
+    }
+    console.log('🔍 [DEBUG] 프로젝트 쿼리 결과:', projectRows);
+
+    if (projectRows.length === 0) {
+      console.log('🔍 [DEBUG] 프로젝트를 찾을 수 없음 - 404 응답 반환');
+      return res.status(404).json({
+        success: false,
+        message: '프로젝트를 찾을 수 없습니다.'
+      });
+    }
+    console.log('🔍 [DEBUG] 프로젝트 존재 확인 완료');
+
+    // 트랜잭션 시작
+    await connection.beginTransaction();
+
+    try {
+      // JSON 데이터 구조 생성
+      const paymentStatus = {};
+      const paymentDates = {};
+      const paymentAmounts = {};
+
+      const paymentTypes = ['advance', 'interim1', 'interim2', 'interim3', 'balance'];
+      
+      for (const paymentType of paymentTypes) {
+        const data = paymentData[paymentType];
+        if (!data) continue;
+
+        const { amount, isPaid, paymentDate } = data;
+        
+        paymentStatus[paymentType] = Boolean(isPaid);
+        paymentDates[paymentType] = isPaid && paymentDate ? paymentDate : null;
+        paymentAmounts[paymentType] = Number(amount) || 0;
+      }
+
+      // 기존 레코드 확인
+      const [existingRows] = await connection.execute(
+        'SELECT id FROM mj_project_payments WHERE project_id = ?',
+        [projectId]
+      );
+
+      if (existingRows.length > 0) {
+        // 업데이트
+        await connection.execute(`
+          UPDATE mj_project_payments 
+          SET payment_status = ?, payment_dates = ?, payment_amounts = ?, updated_at = CURRENT_TIMESTAMP
+          WHERE project_id = ?
+        `, [JSON.stringify(paymentStatus), JSON.stringify(paymentDates), JSON.stringify(paymentAmounts), projectId]);
+      } else {
+        // 삽입
+        await connection.execute(`
+          INSERT INTO mj_project_payments (project_id, payment_status, payment_dates, payment_amounts)
+          VALUES (?, ?, ?, ?)
+        `, [projectId, JSON.stringify(paymentStatus), JSON.stringify(paymentDates), JSON.stringify(paymentAmounts)]);
+      }
+
+      // 트랜잭션 커밋
+      await connection.commit();
+
+      res.json({
+        success: true,
+        message: '결제 정보가 성공적으로 저장되었습니다.'
+      });
+
+    } catch (error) {
+      // 트랜잭션 롤백
+      await connection.rollback();
+      throw error;
+    }
+
+  } catch (error) {
+    errorLog(`[MJ-Project] 결제 정보 저장 오류: ${error.message}`);
+    
+    res.status(500).json({
+      success: false,
+      message: '결제 정보 저장 중 오류가 발생했습니다.',
+      error: error.message
+    });
+  } finally {
+    connection.release();
+  }
+});
+
+// MJ 프로젝트 결제 정보 조회 API
+router.get('/:id/payment-to-supplier', authMiddleware, async (req, res) => {
+  console.log('🔍 [DEBUG] GET /api/mj-project/:id/payment-to-supplier 엔드포인트 호출됨');
+  console.log('🔍 [DEBUG] req.params:', req.params);
+  console.log('🔍 [DEBUG] req.user:', req.user);
+  
+  const connection = await pool.getConnection();
+  
+  try {
+    const projectId = req.params.id;
+    const userId = req.user.userId;
+    
+    console.log('🔍 [DEBUG] projectId:', projectId, 'userId:', userId);
+
+    // 프로젝트 존재 여부 확인 (Admin은 모든 프로젝트 조회 가능)
+    console.log('🔍 [DEBUG] 프로젝트 존재 여부 확인 중...');
+    console.log('🔍 [DEBUG] req.user.isAdmin:', req.user.isAdmin);
+    
+    let projectRows;
+    if (req.user.isAdmin) {
+      // Admin은 모든 프로젝트 조회 가능
+      console.log('🔍 [DEBUG] Admin 권한으로 프로젝트 조회');
+      [projectRows] = await connection.execute(
+        'SELECT id FROM mj_project WHERE id = ?',
+        [projectId]
+      );
+    } else {
+      // 일반 사용자는 자신의 프로젝트만 조회 가능
+      console.log('🔍 [DEBUG] 일반 사용자 권한으로 프로젝트 조회');
+      [projectRows] = await connection.execute(
+        'SELECT id FROM mj_project WHERE id = ? AND user_id = ?',
+        [projectId, userId]
+      );
+    }
+    console.log('🔍 [DEBUG] 프로젝트 쿼리 결과:', projectRows);
+
+    if (projectRows.length === 0) {
+      console.log('🔍 [DEBUG] 프로젝트를 찾을 수 없음 - 404 응답 반환');
+      return res.status(404).json({
+        success: false,
+        message: '프로젝트를 찾을 수 없습니다.'
+      });
+    }
+    console.log('🔍 [DEBUG] 프로젝트 존재 확인 완료');
+
+    // 결제 정보 조회 (JSON 형식)
+    const [paymentRows] = await connection.execute(`
+      SELECT payment_status, payment_dates, payment_amounts
+      FROM mj_project_payments
+      WHERE project_id = ?
+    `, [projectId]);
+
+    // 결제 데이터 구조화
+    const paymentData = {
+      advance: { isPaid: false, amount: 0, paymentDate: '' },
+      interim1: { isPaid: false, amount: 0, paymentDate: '' },
+      interim2: { isPaid: false, amount: 0, paymentDate: '' },
+      interim3: { isPaid: false, amount: 0, paymentDate: '' },
+      balance: { isPaid: false, amount: 0, paymentDate: '' }
+    };
+
+    // JSON 데이터를 paymentData에 매핑
+    if (paymentRows.length > 0) {
+      const row = paymentRows[0];
+      const paymentStatus = row.payment_status ? JSON.parse(row.payment_status) : {};
+      const paymentDates = row.payment_dates ? JSON.parse(row.payment_dates) : {};
+      const paymentAmounts = row.payment_amounts ? JSON.parse(row.payment_amounts) : {};
+
+      ['advance', 'interim1', 'interim2', 'interim3', 'balance'].forEach(paymentType => {
+        paymentData[paymentType] = {
+          isPaid: Boolean(paymentStatus[paymentType]),
+          amount: Number(paymentAmounts[paymentType]) || 0,
+          paymentDate: paymentDates[paymentType] || ''
+        };
+      });
+    }
+
+    res.json({
+      success: true,
+      message: '결제 정보를 성공적으로 조회했습니다.',
+      data: paymentData
+    });
+
+  } catch (error) {
+    errorLog(`[MJ-Project] 결제 정보 조회 오류: ${error.message}`);
+    
+    res.status(500).json({
+      success: false,
+      message: '결제 정보 조회 중 오류가 발생했습니다.',
+      error: error.message
+    });
+  } finally {
+    connection.release();
+  }
+});
+
+// 등록된 라우트 확인
+console.log('🔍 [DEBUG] mj-project 라우트 등록 완료');
+console.log('🔍 [DEBUG] 등록된 라우트들:');
+router.stack.forEach((middleware, index) => {
+  if (middleware.route) {
+    console.log(`  ${index}: ${Object.keys(middleware.route.methods).join(', ').toUpperCase()} ${middleware.route.path}`);
   }
 });
 

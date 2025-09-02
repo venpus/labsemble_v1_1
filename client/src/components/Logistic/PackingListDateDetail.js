@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { toast } from 'react-hot-toast';
-import { ArrowLeft, Package, Calendar, Truck, Box } from 'lucide-react';
+import { ArrowLeft, Package, Calendar, Truck, Box, Printer } from 'lucide-react';
 
 const PackingListDateDetail = () => {
   const [searchParams] = useSearchParams();
@@ -16,6 +16,8 @@ const PackingListDateDetail = () => {
     totalProducts: 0,
     logisticCompanies: []
   });
+  const [isPrinting, setIsPrinting] = useState(false);
+  const printRef = useRef(null);
 
   // URL 파라미터에서 날짜 정보 추출
   const displayDate = date === 'no-date' ? '날짜 미지정' : date;
@@ -251,6 +253,134 @@ const PackingListDateDetail = () => {
     }
   };
 
+  // 브라우저 인쇄 기능
+  const handlePrint = () => {
+    if (!printRef.current) {
+      toast.error('인쇄할 내용을 찾을 수 없습니다.');
+      return;
+    }
+
+    setIsPrinting(true);
+    toast.loading('인쇄 준비 중입니다...', { id: 'print-generation' });
+
+    try {
+      // 인쇄용 스타일 적용
+      const printWindow = window.open('', '_blank');
+      const printContent = printRef.current.innerHTML;
+      
+      printWindow.document.write(`
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <title>패킹리스트 상세보기 - ${displayDate}</title>
+            <meta charset="utf-8">
+            <style>
+              body {
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                margin: 0;
+                padding: 20px;
+                background: white;
+                color: black;
+              }
+              .print-container {
+                max-width: 100%;
+                margin: 0 auto;
+              }
+              .print-title {
+                text-align: center;
+                font-size: 24px;
+                font-weight: bold;
+                margin-bottom: 20px;
+                padding: 20px;
+                background-color: #f3f4f6;
+                border: 2px solid #000;
+              }
+              .print-info {
+                text-align: center;
+                font-size: 14px;
+                margin-bottom: 20px;
+                color: #666;
+              }
+              .print-table {
+                width: 100%;
+                border-collapse: collapse;
+                border: 2px solid #000;
+                margin-top: 20px;
+              }
+              .print-table th,
+              .print-table td {
+                border: 1px solid #000;
+                padding: 8px;
+                text-align: center;
+                font-size: 12px;
+              }
+              .print-table th {
+                background-color: #f3f4f6;
+                font-weight: bold;
+              }
+              .print-group-header {
+                background-color: #e5e7eb;
+                border: 2px solid #000;
+                font-weight: bold;
+                text-align: left;
+                padding: 10px;
+              }
+              .print-group-header td {
+                border: 2px solid #000;
+                text-align: left;
+              }
+              .product-badge {
+                display: inline-block;
+                padding: 4px 8px;
+                background-color: #dcfce7;
+                color: #166534;
+                border-radius: 12px;
+                font-size: 11px;
+                font-weight: 500;
+              }
+              .product-image {
+                width: 48px;
+                height: 48px;
+                object-fit: cover;
+                border-radius: 4px;
+                border: 1px solid #d1d5db;
+              }
+              .no-print {
+                display: none !important;
+              }
+              @media print {
+                body { margin: 0; }
+                .print-container { max-width: none; }
+              }
+            </style>
+          </head>
+          <body>
+            <div class="print-container">
+              ${printContent}
+            </div>
+            <script>
+              window.onload = function() {
+                window.print();
+                window.onafterprint = function() {
+                  window.close();
+                };
+              };
+            </script>
+          </body>
+        </html>
+      `);
+      
+      printWindow.document.close();
+      
+      toast.success('인쇄 창이 열렸습니다.', { id: 'print-generation' });
+    } catch (error) {
+      console.error('❌ [PackingListDateDetail] 인쇄 오류:', error);
+      toast.error('인쇄에 실패했습니다: ' + error.message, { id: 'print-generation' });
+    } finally {
+      setIsPrinting(false);
+    }
+  };
+
   if (!date) {
     return (
       <div className="container mx-auto px-4 py-8">
@@ -320,6 +450,70 @@ const PackingListDateDetail = () => {
 
   return (
     <div className="container mx-auto px-4 py-8">
+      {/* 웹/인쇄용 스타일 구분 */}
+      <style jsx>{`
+        /* 웹 화면용 스타일 */
+        .web-only {
+          display: block;
+        }
+        .print-only {
+          display: none;
+        }
+        
+        /* 인쇄용 스타일 */
+        @media print {
+          .web-only {
+            display: none !important;
+          }
+          .print-only {
+            display: block !important;
+          }
+          .print-table {
+            border-collapse: collapse;
+            border: 2px solid #000000;
+          }
+          .print-table th,
+          .print-table td {
+            border: 1px solid #000000;
+            padding: 8px;
+          }
+          .print-table th {
+            background-color: #f3f4f6;
+            font-weight: bold;
+          }
+          .print-table tbody tr {
+            border: 1px solid #000000;
+          }
+          .print-group-header {
+            background-color: #e5e7eb;
+            border: 2px solid #000000;
+            font-weight: bold;
+          }
+        }
+        
+        /* 웹 화면용 테이블 스타일 */
+        .web-table {
+          border-collapse: separate;
+          border-spacing: 0;
+        }
+        .web-table th,
+        .web-table td {
+          border: 1px solid #e5e7eb;
+          padding: 12px;
+        }
+        .web-table th {
+          background-color: #f9fafb;
+          font-weight: 600;
+        }
+        .web-table tbody tr:hover {
+          background-color: #f9fafb;
+        }
+        .web-group-header {
+          background-color: #f3f4f6;
+          border: 1px solid #d1d5db;
+          font-weight: 600;
+        }
+      `}</style>
       {/* 헤더 */}
       <div className="mb-6">
         <div className="flex items-center justify-between">
@@ -331,7 +525,7 @@ const PackingListDateDetail = () => {
           </div>
           
           {/* 액션 버튼들 */}
-          <div className="flex space-x-3">
+          <div className="flex space-x-3 no-print">
             <button
               onClick={handleGoBack}
               className="inline-flex items-center px-4 py-2 bg-gray-600 text-white text-sm font-medium rounded-lg hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500 transition-colors"
@@ -339,6 +533,17 @@ const PackingListDateDetail = () => {
               <ArrowLeft className="w-4 h-4 mr-2" />
               뒤로 가기
             </button>
+            
+            {/* 인쇄 버튼 */}
+            <button
+              onClick={handlePrint}
+              disabled={isPrinting || packingData.length === 0}
+              className="inline-flex items-center px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <Printer className="w-4 h-4 mr-2" />
+              {isPrinting ? '인쇄 준비 중...' : '인쇄'}
+            </button>
+            
             {/* Admin 권한 사용자에게만 편집 버튼 표시 */}
             {isAdmin && (
               <button
@@ -402,28 +607,29 @@ const PackingListDateDetail = () => {
         </div>
       </div>
 
-      {/* 패킹리스트 상세 테이블 */}
-      <div className="bg-white shadow-md rounded-lg overflow-hidden">
+      {/* 웹 화면용 컨테이너 */}
+      <div className="web-only bg-white shadow-md rounded-lg overflow-hidden">
+        {/* 패킹리스트 상세 테이블 */}
         <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
+          <table className="min-w-full web-table">
             <thead className="bg-gray-50">
               <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
                   번호
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
                   상품명
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
                   상품 이미지
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
                   소포장 구성
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
                   포장수
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
                   한박스 내 수량
                 </th>
               </tr>
@@ -439,7 +645,7 @@ const PackingListDateDetail = () => {
                 packingData.map((packingGroup, groupIndex) => (
                   <React.Fragment key={packingGroup.packing_code}>
                     {/* 포장코드 그룹 헤더 */}
-                    <tr className="bg-gray-100 border-b-2 border-gray-300">
+                    <tr className="web-group-header">
                       <td colSpan="6" className="px-6 py-3">
                         <div className="flex items-center justify-between">
                           <div className="flex items-center space-x-4">
@@ -454,7 +660,7 @@ const PackingListDateDetail = () => {
                             </span>
                           </div>
                           <span className="text-sm text-gray-500">
-                            상품 수: {packingGroup.products.length}개 (모든 상품 포함)
+                            상품 종류: {packingGroup.products.length}개
                           </span>
                         </div>
                       </td>
@@ -468,20 +674,20 @@ const PackingListDateDetail = () => {
                         }`}
                       >
                         {/* 번호 */}
-                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 text-center">
                           {groupIndex + 1}-{productIndex + 1}
                         </td>
                         
                         {/* 상품명 */}
-                        <td className="px-6 py-4 text-sm text-gray-900">
+                        <td className="px-6 py-4 text-sm text-gray-900 text-center">
                           <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
                             {product.product_name}
                           </span>
                         </td>
                         
                         {/* 상품 이미지 */}
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="flex-shrink-0 h-12 w-12">
+                        <td className="px-6 py-4 whitespace-nowrap text-center">
+                          <div className="flex-shrink-0 h-12 w-12 mx-auto">
                             {product.product_image ? (
                               <img
                                 src={product.product_image}
@@ -504,17 +710,157 @@ const PackingListDateDetail = () => {
                         </td>
                         
                         {/* 소포장 구성 */}
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-center">
                           {product.packaging_method || 0} 개
                         </td>
                         
                         {/* 포장수 */}
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-center">
                           {product.packaging_count || 0} 개
                         </td>
                         
                         {/* 한박스 내 수량 */}
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-center">
+                          <span className="font-bold">
+                            {product.packaging_method && product.packaging_count && product.packaging_method > 0 && product.packaging_count > 0
+                              ? `${(product.packaging_method * product.packaging_count).toLocaleString()} 개/박스`
+                              : '-'
+                            }
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </React.Fragment>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* 인쇄용 컨테이너 */}
+      <div ref={printRef} className="print-only">
+        {/* 인쇄용 제목 영역 */}
+        <div className="bg-gray-50 px-6 py-4 border-b border-gray-200">
+          <h2 className="text-2xl font-bold text-gray-900 text-center mb-2">
+            패킹리스트 상세보기
+          </h2>
+          <div className="text-center text-sm text-gray-600">
+            <p>출고일자: {displayDate}</p>
+            <p>생성일시: {new Date().toLocaleString('ko-KR')}</p>
+          </div>
+        </div>
+        
+        {/* 인쇄용 패킹리스트 상세 테이블 */}
+        <div className="overflow-x-auto">
+          <table className="min-w-full print-table">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  번호
+                </th>
+                <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  상품명
+                </th>
+                <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  상품 이미지
+                </th>
+                <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  소포장 구성
+                </th>
+                <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  포장수
+                </th>
+                <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  한박스 내 수량
+                </th>
+              </tr>
+            </thead>
+            <tbody className="bg-white">
+              {packingData.length === 0 ? (
+                <tr>
+                  <td colSpan="6" className="px-6 py-12 text-center text-gray-500">
+                    해당 날짜의 패킹리스트가 없습니다.
+                  </td>
+                </tr>
+              ) : (
+                packingData.map((packingGroup, groupIndex) => (
+                  <React.Fragment key={packingGroup.packing_code}>
+                    {/* 포장코드 그룹 헤더 */}
+                    <tr className="print-group-header">
+                      <td colSpan="6" className="px-6 py-3">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center space-x-4">
+                            <span className="text-lg font-bold text-gray-900">
+                              📦 포장코드: {packingGroup.packing_code}
+                            </span>
+                            <span className="text-lg font-bold text-blue-600">
+                              총 {packingGroup.box_count ? packingGroup.box_count.toLocaleString() : '0'} 박스
+                            </span>
+                            <span className="text-lg font-bold text-purple-600">
+                              물류회사: {packingGroup.logistic_company || '미지정'}
+                            </span>
+                          </div>
+                          <span className="text-sm text-gray-500">
+                            상품 종류: {packingGroup.products.length}개
+                          </span>
+                        </div>
+                      </td>
+                    </tr>
+                    
+                    {packingGroup.products.map((product, productIndex) => (
+                      <tr 
+                        key={`${packingGroup.packing_code}-${productIndex}`} 
+                        className="hover:bg-gray-50"
+                      >
+                        {/* 번호 */}
+                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 text-center">
+                          {groupIndex + 1}-{productIndex + 1}
+                        </td>
+                        
+                        {/* 상품명 */}
+                        <td className="px-6 py-4 text-sm text-gray-900 text-center">
+                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                            {product.product_name}
+                          </span>
+                        </td>
+                        
+                        {/* 상품 이미지 */}
+                        <td className="px-6 py-4 whitespace-nowrap text-center">
+                          <div className="flex-shrink-0 h-12 w-12 mx-auto">
+                            {product.product_image ? (
+                              <img
+                                src={product.product_image}
+                                alt={product.product_name || '상품 이미지'}
+                                className="h-12 w-12 rounded-lg object-cover border border-gray-200"
+                                onError={(e) => {
+                                  e.target.style.display = 'none';
+                                  e.target.nextSibling.style.display = 'flex';
+                                }}
+                              />
+                            ) : null}
+                            <div 
+                              className={`h-12 w-12 rounded-lg bg-gray-200 flex items-center justify-center ${
+                                product.product_image ? 'hidden' : 'flex'
+                              }`}
+                            >
+                              <Package className="h-6 w-6 text-gray-400" />
+                            </div>
+                          </div>
+                        </td>
+                        
+                        {/* 소포장 구성 */}
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-center">
+                          {product.packaging_method || 0} 개
+                        </td>
+                        
+                        {/* 포장수 */}
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-center">
+                          {product.packaging_count || 0} 개
+                        </td>
+                        
+                        {/* 한박스 내 수량 */}
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-center">
                           <span className="font-bold">
                             {product.packaging_method && product.packaging_count && product.packaging_method > 0 && product.packaging_count > 0
                               ? `${(product.packaging_method * product.packaging_count).toLocaleString()} 개/박스`

@@ -4,4 +4,5 @@ export { default as PackingListDetail } from './PackingListDetail';
 export { default as PackingListDateDetail } from './PackingListDateDetail';
 export { default as MakePackingList } from './MakePackingList';
 export { default as ProjectSearchModal } from './ProjectSearchModal';
-export { default as LogisticPayment } from './LogisticPayment'; 
+export { default as LogisticPayment } from './LogisticPayment';
+export { default as PackingCodeDetailList } from './PackingCodeDetailList'; 

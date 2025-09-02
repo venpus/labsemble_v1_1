@@ -24,27 +24,7 @@ router.post('/auto-save', auth, async (req, res) => {
       project_id
     } = req.body;
 
-    console.log('📥 [auto-save] 요청 데이터:', {
-      packing_code,
-      box_count,
-      pl_date,
-      logistic_company,
-      product_name,
-      product_sku,
-      packaging_method,
-      packaging_count,
-      quantity_per_box,
-      force_insert,
-      client_product_id,
-      project_id
-    });
-    
-    console.log('🔍 [auto-save] project_id 상세 정보:', {
-      project_id,
-      project_id_type: typeof project_id,
-      project_id_truthy: !!project_id,
-      project_id_number: Number(project_id)
-    });
+    // 자동 저장 요청 데이터 처리
 
     // 필수 필드 검증
     if (!packing_code || !product_name) {
@@ -55,34 +35,7 @@ router.post('/auto-save', auth, async (req, res) => {
 
     // force_insert가 true이면 무조건 새 데이터 삽입
     if (force_insert) {
-      console.log('🆕 [auto-save] 강제 삽입 모드: 새 데이터 삽입 시작');
-      
-      // project_id 컬럼 존재 여부 확인
-      try {
-        const [columns] = await connection.execute("SHOW COLUMNS FROM mj_packing_list LIKE 'project_id'");
-        console.log('🔍 [auto-save] project_id 컬럼 확인:', {
-          exists: columns.length > 0,
-          columnCount: columns.length,
-          columns: columns
-        });
-      } catch (error) {
-        console.error('❌ [auto-save] project_id 컬럼 확인 실패:', error.message);
-      }
-      
-      console.log('📊 [auto-save] 삽입할 데이터:', {
-        packing_code,
-        box_count,
-        pl_date,
-        logistic_company,
-        product_name,
-        product_sku,
-        product_image,
-        packaging_method,
-        packaging_count,
-        quantity_per_box,
-        client_product_id,
-        project_id
-      });
+      // 강제 삽입 모드: 새 데이터 삽입
       
       const insertQuery = `INSERT INTO mj_packing_list (
          packing_code, box_count, pl_date, logistic_company, product_name, product_sku, 
@@ -104,24 +57,7 @@ router.post('/auto-save', auth, async (req, res) => {
         project_id || null
       ];
       
-      console.log('🔍 [auto-save] INSERT 쿼리:', insertQuery);
-      console.log('🔍 [auto-save] INSERT 값:', insertValues);
-      
       const [insertResult] = await connection.execute(insertQuery, insertValues);
-      
-      // 삽입된 데이터 확인
-      try {
-        const [insertedRow] = await connection.execute(
-          "SELECT * FROM mj_packing_list WHERE id = ?",
-          [insertResult.insertId]
-        );
-        console.log('🔍 [auto-save] 삽입된 데이터 확인:', {
-          insertId: insertResult.insertId,
-          insertedData: insertedRow[0]
-        });
-      } catch (error) {
-        console.error('❌ [auto-save] 삽입된 데이터 확인 실패:', error.message);
-      }
       
       const result = {
         success: true,
@@ -132,7 +68,7 @@ router.post('/auto-save', auth, async (req, res) => {
         newProductName: product_name
       };
       
-      console.log('✅ [auto-save] 강제 삽입 완료:', result);
+      // 강제 삽입 완료
       return res.json(result);
     }
 
@@ -146,13 +82,7 @@ router.post('/auto-save', auth, async (req, res) => {
       );
       existingRows = rows;
       
-      console.log('🔍 [auto-save] client_product_id로 정확한 상품 검색:', {
-        client_product_id,
-        packing_code,
-        product_name,
-        existingRowsCount: existingRows.length,
-        existingRows
-      });
+      // client_product_id로 정확한 상품 검색
     } else {
       // client_product_id가 없으면 포장코드로 검색 (하위 호환성)
       const [rows] = await connection.execute(
@@ -162,12 +92,7 @@ router.post('/auto-save', auth, async (req, res) => {
       );
       existingRows = rows;
       
-      console.log('🔍 [auto-save] 포장코드로 검색 (하위 호환성):', {
-        packing_code,
-        product_name,
-        existingRowsCount: existingRows.length,
-        existingRows
-      });
+      // 포장코드로 검색 (하위 호환성)
     }
 
     let result;
@@ -176,14 +101,7 @@ router.post('/auto-save', auth, async (req, res) => {
       const existingId = existingRows[0].id;
       const oldProductName = existingRows[0].product_name;
       
-      console.log('🔄 [auto-save] 기존 데이터 업데이트:', {
-        existingId,
-        oldProductName,
-        newProductName: product_name,
-        packing_code,
-        logistic_company,
-        pl_date
-      });
+      // 기존 데이터 업데이트
       
       const [updateResult] = await connection.execute(
         `UPDATE mj_packing_list SET
@@ -224,16 +142,7 @@ router.post('/auto-save', auth, async (req, res) => {
       };
     } else {
       // 새 데이터 삽입
-      console.log('🆕 [auto-save] 새 데이터 삽입:', {
-        packing_code,
-        product_name,
-        box_count,
-        pl_date,
-        logistic_company,
-        packaging_method,
-        packaging_count,
-        project_id
-      });
+      // 새 데이터 삽입
       
       const [insertResult] = await connection.execute(
         `INSERT INTO mj_packing_list (
@@ -376,7 +285,7 @@ router.delete('/packing-code/:packingCode', auth, async (req, res) => {
   
   try {
     const { packingCode } = req.params;
-    console.log('🗑️ [packing-list] 포장코드별 전체 삭제 시작:', packingCode);
+    // 포장코드별 전체 삭제
     
     // 삭제 전 데이터 확인
     const [checkRows] = await connection.execute(
@@ -400,7 +309,7 @@ router.delete('/packing-code/:packingCode', auth, async (req, res) => {
     
     connection.release();
     
-    console.log('✅ [packing-list] 포장코드별 전체 삭제 성공:', packingCode, '→', deleteResult.affectedRows, '개 항목 삭제');
+    // 포장코드별 전체 삭제 성공
     res.json({ 
       success: true, 
       message: `포장코드 ${packingCode}의 모든 패킹리스트가 삭제되었습니다.`,
@@ -408,7 +317,7 @@ router.delete('/packing-code/:packingCode', auth, async (req, res) => {
     });
     
   } catch (error) {
-    console.error('❌ [packing-list] 포장코드별 전체 삭제 오류:', error);
+    console.error('포장코드별 전체 삭제 오류:', error);
     res.status(500).json({ 
       success: false, 
       message: '패킹리스트 삭제 중 오류가 발생했습니다.',
@@ -424,10 +333,7 @@ router.post('/update-project-export-quantity', auth, async (req, res) => {
   try {
     const { projectId, exportQuantity } = req.body;
     
-    console.log('📥 [update-project-export-quantity] 요청 데이터:', {
-      projectId,
-      exportQuantity
-    });
+    // 프로젝트 출고 수량 업데이트 요청
 
     // 필수 필드 검증
     if (!projectId || exportQuantity === undefined) {
@@ -452,13 +358,7 @@ router.post('/update-project-export-quantity', auth, async (req, res) => {
     const currentExportQuantity = currentProject.export_quantity || 0;
     const newExportQuantity = currentExportQuantity + exportQuantity;
 
-    console.log('📊 [update-project-export-quantity] 수량 계산:', {
-      projectId,
-      projectName: currentProject.project_name,
-      currentExportQuantity,
-      additionalExportQuantity: exportQuantity,
-      newExportQuantity
-    });
+    // 수량 계산
 
     // export_quantity 업데이트
     await connection.execute(
@@ -472,13 +372,7 @@ router.post('/update-project-export-quantity', auth, async (req, res) => {
       [projectId]
     );
 
-    console.log('✅ [update-project-export-quantity] 프로젝트 export_quantity 업데이트 완료:', {
-      projectId,
-      projectName: currentProject.project_name,
-      oldExportQuantity: currentExportQuantity,
-      newExportQuantity,
-      remainQuantity: newExportQuantity
-    });
+    // 프로젝트 export_quantity 업데이트 완료
 
     res.json({
       success: true,
@@ -490,7 +384,7 @@ router.post('/update-project-export-quantity', auth, async (req, res) => {
     });
 
   } catch (error) {
-    console.error('❌ [update-project-export-quantity] 오류:', error);
+    console.error('프로젝트 출고 수량 업데이트 오류:', error);
     res.status(500).json({ 
       error: '프로젝트 출고 수량 업데이트 중 오류가 발생했습니다.',
       details: error.message 
@@ -507,9 +401,7 @@ router.post('/calculate-project-export-quantity', auth, async (req, res) => {
   try {
     const { projectId } = req.body;
     
-    console.log('📥 [calculate-project-export-quantity] 요청 데이터:', {
-      projectId
-    });
+    // 프로젝트 출고 수량 계산 요청
 
     // 필수 필드 검증
     if (!projectId) {
@@ -555,42 +447,18 @@ router.post('/calculate-project-export-quantity', auth, async (req, res) => {
       calculated_export_quantity: parseInt(item.calculated_export_quantity) || 0
     }));
 
-    console.log('📊 [calculate-project-export-quantity] 패킹리스트 데이터:', {
-      projectId,
-      projectName: currentProject.project_name,
-      packingListCount: processedPackingListData.length,
-      packingListData: processedPackingListData.map(item => ({
-        boxCount: item.box_count,
-        packagingCount: item.packaging_count,
-        packagingMethod: item.packaging_method,
-        calculatedQuantity: item.calculated_export_quantity
-      }))
-    });
+    // 패킹리스트 데이터 처리
 
     // 총 export_quantity 계산 (변환된 숫자 데이터 사용)
     const totalExportQuantity = processedPackingListData.reduce((sum, item) => {
       return sum + (item.calculated_export_quantity || 0);
     }, 0);
 
-    console.log('🧮 [calculate-project-export-quantity] 총 export_quantity 계산:', {
-      projectId,
-      projectName: currentProject.project_name,
-      currentExportQuantity,
-      newExportQuantity: totalExportQuantity,
-      calculationDetails: processedPackingListData.map(item => 
-        `${item.box_count} × ${item.packaging_count} × ${item.packaging_method} = ${item.calculated_export_quantity}`
-      )
-    });
+    // 총 export_quantity 계산
 
     // 제약조건 검증: export_quantity가 entry_quantity를 초과하지 않는지 확인
     if (totalExportQuantity > currentProject.entry_quantity) {
-      console.warn('⚠️ [calculate-project-export-quantity] 제약조건 위반:', {
-        projectId,
-        projectName: currentProject.project_name,
-        calculatedExportQuantity: totalExportQuantity,
-        entryQuantity: currentProject.entry_quantity,
-        exceedAmount: totalExportQuantity - currentProject.entry_quantity
-      });
+      // 제약조건 위반: 출고 수량이 입고 수량을 초과
 
       return res.status(400).json({
         success: false,
@@ -607,11 +475,7 @@ router.post('/calculate-project-export-quantity', auth, async (req, res) => {
 
     // 제약조건 검증: export_quantity가 음수가 아닌지 확인
     if (totalExportQuantity < 0) {
-      console.warn('⚠️ [calculate-project-export-quantity] 제약조건 위반: 음수 export_quantity:', {
-        projectId,
-        projectName: currentProject.project_name,
-        calculatedExportQuantity: totalExportQuantity
-      });
+      // 제약조건 위반: 음수 export_quantity
 
       return res.status(400).json({
         success: false,
@@ -637,13 +501,7 @@ router.post('/calculate-project-export-quantity', auth, async (req, res) => {
         [projectId]
       );
 
-      console.log('✅ [calculate-project-export-quantity] 프로젝트 export_quantity 업데이트 완료:', {
-        projectId,
-        projectName: currentProject.project_name,
-        oldExportQuantity: currentExportQuantity,
-        newExportQuantity: totalExportQuantity,
-        remainQuantity: currentProject.entry_quantity - totalExportQuantity
-      });
+      // 프로젝트 export_quantity 업데이트 완료
 
       res.json({
         success: true,
@@ -662,7 +520,7 @@ router.post('/calculate-project-export-quantity', auth, async (req, res) => {
       });
 
     } catch (updateError) {
-      console.error('❌ [calculate-project-export-quantity] 업데이트 오류:', updateError);
+      console.error('프로젝트 출고 수량 업데이트 오류:', updateError);
       
       // 제약조건 위반 오류인지 확인
       if (updateError.code === 'ER_CHECK_CONSTRAINT_VIOLATED' || 
@@ -686,9 +544,87 @@ router.post('/calculate-project-export-quantity', auth, async (req, res) => {
     }
 
   } catch (error) {
-    console.error('❌ [calculate-project-export-quantity] 오류:', error);
+    console.error('프로젝트 출고 수량 계산 오류:', error);
     res.status(500).json({ 
       error: '프로젝트 출고 수량 계산 및 업데이트 중 오류가 발생했습니다.',
+      details: error.message 
+    });
+  } finally {
+    connection.release();
+  }
+});
+
+// 날짜별 패킹리스트 조회
+router.get('/by-date/:date', auth, async (req, res) => {
+  const connection = await pool.getConnection();
+  const { date } = req.params;
+  
+  try {
+    // 날짜별 패킹리스트 조회
+    
+    let query, params;
+    
+    if (date === 'no-date') {
+      // 날짜가 지정되지 않은 경우
+      query = `SELECT * FROM mj_packing_list 
+               WHERE pl_date IS NULL OR pl_date = '' OR pl_date = 'no-date'
+               ORDER BY created_at DESC`;
+      params = [];
+    } else {
+      // 특정 날짜의 데이터 조회 (DATE 함수로 날짜 부분만 비교)
+      query = `SELECT * FROM mj_packing_list 
+               WHERE DATE(pl_date) = DATE(?)
+               ORDER BY created_at DESC`;
+      params = [date];
+    }
+    
+    const [rows] = await connection.execute(query, params);
+    
+    res.json({
+      success: true,
+      data: rows,
+      total: rows.length,
+      date: date
+    });
+    
+  } catch (error) {
+    console.error('날짜별 패킹리스트 조회 오류:', error);
+    res.status(500).json({ 
+      error: '날짜별 패킹리스트 조회 중 오류가 발생했습니다.',
+      details: error.message 
+    });
+  } finally {
+    connection.release();
+  }
+});
+
+// 패킹리스트 개별 삭제 (ID별)
+router.delete('/:id', auth, async (req, res) => {
+  const connection = await pool.getConnection();
+  
+  try {
+    const { id } = req.params;
+    
+    const [result] = await connection.execute(
+      'DELETE FROM mj_packing_list WHERE id = ?',
+      [id]
+    );
+    
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ 
+        error: '해당 패킹리스트를 찾을 수 없습니다.' 
+      });
+    }
+    
+    res.json({
+      success: true,
+      message: '패킹리스트가 삭제되었습니다.'
+    });
+    
+  } catch (error) {
+    console.error('패킹리스트 삭제 오류:', error);
+    res.status(500).json({ 
+      error: '패킹리스트 삭제 중 오류가 발생했습니다.',
       details: error.message 
     });
   } finally {

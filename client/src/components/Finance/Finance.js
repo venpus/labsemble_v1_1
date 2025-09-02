@@ -177,13 +177,13 @@ const Finance = () => {
 
 
 
-  // 입금 및 지출 내역 데이터 가져오기
+  // 입금 및 지출 내역 데이터 가져오기 (Payment 지급일 포함)
   const fetchTransactions = async () => {
     try {
       setLoading(true);
       
-      // 입금 내역과 지출 내역을 병렬로 가져오기
-      const [incomingResponse, expenseResponse] = await Promise.all([
+      // 입금 내역, 지출 내역, Payment 지급일 데이터를 병렬로 가져오기
+      const [incomingResponse, expenseResponse, paymentScheduleResponse] = await Promise.all([
         fetch('/api/finance/incoming', {
           headers: {
             'Authorization': `Bearer ${localStorage.getItem('token')}`
@@ -193,12 +193,18 @@ const Finance = () => {
           headers: {
             'Authorization': `Bearer ${localStorage.getItem('token')}`
           }
+        }),
+        fetch('/api/finance/payment-schedule', {
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('token')}`
+          }
         })
       ]);
       
       if (incomingResponse.ok && expenseResponse.ok) {
         const incomingData = await incomingResponse.json();
         const expenseData = await expenseResponse.json();
+        const paymentScheduleData = paymentScheduleResponse.ok ? await paymentScheduleResponse.json() : null;
         
         if (incomingData.success && expenseData.success) {
           // 입금 내역 변환 (숫자 타입 보장)
@@ -225,8 +231,17 @@ const Finance = () => {
             notes: transaction.notes || ''
           }));
           
+          // Payment 지급일 데이터 추가 (mj_project 기반)
+          let paymentTransactions = [];
+          if (paymentScheduleData && paymentScheduleData.success) {
+            paymentTransactions = paymentScheduleData.data.transactions.map(transaction => ({
+              ...transaction,
+              balance: 0 // 잔액은 나중에 계산
+            }));
+          }
+          
           // 모든 거래를 날짜순으로 정렬하고 잔액 계산
-          const allTransactions = [...incomingTransactions, ...expenseTransactions]
+          const allTransactions = [...incomingTransactions, ...expenseTransactions, ...paymentTransactions]
             .sort((a, b) => new Date(a.date) - new Date(b.date));
           
           // 잔액 계산 (CNY 기준, 숫자 타입 보장)
@@ -250,7 +265,7 @@ const Finance = () => {
         }
       }
     } catch (error) {
-      // 오류 처리
+      console.error('거래 내역 조회 오류:', error);
     } finally {
       setLoading(false);
     }

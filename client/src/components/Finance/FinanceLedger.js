@@ -1,60 +1,20 @@
 import React, { useState } from 'react';
-import { Calendar, DollarSign, FileText, Eye, Edit, Trash2 } from 'lucide-react';
+import { Calendar, DollarSign, FileText } from 'lucide-react';
 
 const FinanceLedger = ({ transactions, loading }) => {
-  const [sortField, setSortField] = useState('date');
-  const [sortDirection, setSortDirection] = useState('desc');
+  const [showPaymentOnly, setShowPaymentOnly] = useState(false);
 
-  // 정렬된 거래내역
-  const sortedTransactions = [...transactions].sort((a, b) => {
-    let aValue, bValue;
-    
-    switch (sortField) {
-      case 'date':
-        aValue = new Date(a.date);
-        bValue = new Date(b.date);
-        break;
-      case 'amount':
-        aValue = Math.abs(Number(a.amount)) || 0;
-        bValue = Math.abs(Number(b.amount)) || 0;
-        break;
-      case 'description':
-        aValue = a.description.toLowerCase();
-        bValue = b.description.toLowerCase();
-        break;
-      case 'category':
-        aValue = a.category.toLowerCase();
-        bValue = b.category.toLowerCase();
-        break;
-      default:
-        aValue = a[sortField];
-        bValue = b[sortField];
-    }
+  // Payment 관련 거래 필터링
+  const filteredTransactions = showPaymentOnly 
+    ? transactions.filter(transaction => transaction.payment_type)
+    : transactions;
 
-    if (sortDirection === 'asc') {
-      return aValue > bValue ? 1 : -1;
-    } else {
-      return aValue < bValue ? 1 : -1;
-    }
+  // 날짜순 오름차순 정렬 (오래된 날짜부터)
+  const sortedTransactions = [...filteredTransactions].sort((a, b) => {
+    const aDate = new Date(a.date);
+    const bDate = new Date(b.date);
+    return aDate - bDate; // 오름차순 정렬
   });
-
-  const handleSort = (field) => {
-    if (sortField === field) {
-      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
-    } else {
-      setSortField(field);
-      setSortDirection('desc');
-    }
-  };
-
-  const SortIcon = ({ field }) => {
-    if (sortField !== field) return null;
-    return (
-      <span className="ml-1">
-        {sortDirection === 'asc' ? '↑' : '↓'}
-      </span>
-    );
-  };
 
   if (loading) {
     return (
@@ -74,9 +34,27 @@ const FinanceLedger = ({ transactions, loading }) => {
   return (
     <div className="p-6">
       <div className="mb-6">
-        <h3 className="text-lg font-semibold text-gray-900 mb-2">장부 보기</h3>
+        <div className="flex justify-between items-center mb-2">
+          <h3 className="text-lg font-semibold text-gray-900">장부 보기</h3>
+          <div className="flex items-center space-x-4">
+            <label className="flex items-center">
+              <input
+                type="checkbox"
+                checked={showPaymentOnly}
+                onChange={(e) => setShowPaymentOnly(e.target.checked)}
+                className="mr-2 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              />
+              <span className="text-sm text-gray-600">Payment 관련 거래만 보기</span>
+            </label>
+          </div>
+        </div>
         <p className="text-sm text-gray-600">
-          총 {transactions.length}건의 거래내역이 있습니다.
+          총 {filteredTransactions.length}건의 거래내역이 있습니다.
+          {showPaymentOnly && (
+            <span className="ml-2 text-blue-600">
+              (Payment 관련: {transactions.filter(t => t.payment_type).length}건)
+            </span>
+          )}
         </p>
       </div>
 
@@ -85,44 +63,28 @@ const FinanceLedger = ({ transactions, loading }) => {
         <table className="min-w-full bg-white border border-gray-200 rounded-lg">
           <thead className="bg-gray-50">
             <tr>
-              <th 
-                className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 border border-gray-300"
-                onClick={() => handleSort('date')}
-              >
+              <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300">
                 <div className="flex items-center justify-center">
                   <Calendar className="w-4 h-4 mr-1" />
                   날짜
-                  <SortIcon field="date" />
                 </div>
               </th>
-              <th 
-                className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 border border-gray-300"
-                onClick={() => handleSort('amount')}
-              >
+              <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300">
                 <div className="flex items-center justify-center">
                   <DollarSign className="w-4 h-4 mr-1" />
                   입금 금액
-                  <SortIcon field="amount" />
                 </div>
               </th>
-              <th 
-                className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 border border-gray-300"
-                onClick={() => handleSort('amount')}
-              >
+              <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300">
                 <div className="flex items-center justify-center">
                   <DollarSign className="w-4 h-4 mr-1" />
                   지출 금액
-                  <SortIcon field="amount" />
                 </div>
               </th>
-              <th 
-                className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 border border-gray-300"
-                onClick={() => handleSort('description')}
-              >
+              <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300">
                 <div className="flex items-center justify-center">
                   <FileText className="w-4 h-4 mr-1" />
                   항목
-                  <SortIcon field="description" />
                 </div>
               </th>
               <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider border border-gray-300">
@@ -135,7 +97,9 @@ const FinanceLedger = ({ transactions, loading }) => {
           </thead>
           <tbody className="divide-y divide-gray-200">
             {sortedTransactions.map((transaction, index) => (
-              <tr key={transaction.id} className="hover:bg-gray-50">
+              <tr key={transaction.id} className={`hover:bg-gray-50 ${
+                transaction.payment_type ? 'bg-blue-50' : ''
+              }`}>
                 <td className="px-3 py-2 whitespace-nowrap text-center border border-gray-300">
                   <div className="text-sm font-medium text-gray-900">
                     {new Date(transaction.date).toLocaleDateString('ko-KR', { 
@@ -158,6 +122,7 @@ const FinanceLedger = ({ transactions, loading }) => {
                   }`}>
                     {transaction.type === 'expense' ? `¥${Number(Math.abs(transaction.amount)).toLocaleString()} CNY` : '-'}
                   </div>
+                  
                 </td>
                 <td className="px-3 py-2 text-center border border-gray-300">
                   <div className="text-sm font-medium text-gray-900">
@@ -171,7 +136,7 @@ const FinanceLedger = ({ transactions, loading }) => {
                 </td>
                 <td className="px-3 py-2 text-center border border-gray-300">
                   <div className="text-sm text-gray-600 max-w-xs truncate" title={transaction.notes}>
-                    {transaction.notes || '-'}
+                    {transaction.notes || ''}
                   </div>
                 </td>
               </tr>

@@ -75,13 +75,13 @@ router.post('/register', async (req, res) => {
 // Login
 router.post('/login', async (req, res) => {
   try {
-    console.log('🔐 [auth] 로그인 시도:', { username: req.body.username });
+    // 로그인 시도
     
     const { username, password } = req.body;
 
     // 필수 필드 검증
     if (!username || !password) {
-      console.log('❌ [auth] 필수 필드 누락:', { username: !!username, password: !!password });
+      // 필수 필드 누락
       return res.status(400).json({ error: '사용자명과 비밀번호를 입력해주세요.' });
     }
 
@@ -104,7 +104,7 @@ router.post('/login', async (req, res) => {
       });
     }
 
-    console.log('🔍 [auth] 사용자 검색 시작:', username);
+    // 사용자 검색
     
     // 사용자 찾기
     const [users] = await pool.execute(
@@ -113,21 +113,21 @@ router.post('/login', async (req, res) => {
     );
 
     if (users.length === 0) {
-      console.log('❌ [auth] 사용자를 찾을 수 없음:', username);
+      // 사용자를 찾을 수 없음
       return res.status(400).json({ error: '사용자명 또는 비밀번호가 올바르지 않습니다.' });
     }
 
     const user = users[0];
-    console.log('✅ [auth] 사용자 찾음:', { id: user.id, username: user.username, isAdmin: user.is_admin });
+    // 사용자 찾음
 
     // 비밀번호 확인
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
-      console.log('❌ [auth] 비밀번호 불일치:', username);
+      // 비밀번호 불일치
       return res.status(400).json({ error: '사용자명 또는 비밀번호가 올바르지 않습니다.' });
     }
 
-    console.log('✅ [auth] 비밀번호 확인 완료');
+    // 비밀번호 확인 완료
 
     // JWT 토큰 생성
     const token = jwt.sign(

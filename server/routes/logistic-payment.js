@@ -17,7 +17,7 @@ router.put('/update', auth, async (req, res) => {
       });
     }
 
-    console.log('💾 [LogisticPayment] 저장 요청 데이터:', { data, date });
+    // 물류 결제 데이터 저장 시작
 
     // 트랜잭션 시작
     await connection.beginTransaction();
@@ -34,6 +34,7 @@ router.put('/update', auth, async (req, res) => {
           packing_code,
           logistic_company,
           box_no,
+          barcode_number,
           tracking_number,
           logistic_fee,
           is_paid,
@@ -74,6 +75,7 @@ router.put('/update', auth, async (req, res) => {
             await connection.execute(`
               UPDATE logistic_payment SET
                 pl_date = ?,
+                barcode_number = ?,
                 tracking_number = ?,
                 logistic_fee = ?,
                 is_paid = ?,
@@ -82,6 +84,7 @@ router.put('/update', auth, async (req, res) => {
               WHERE packing_code = ? AND mj_packing_list_id = ? AND box_no = ?
             `, [
               pl_date,
+              barcode_number || null,
               tracking_number || null,
               logistic_fee || 0,
               is_paid || false,
@@ -91,7 +94,7 @@ router.put('/update', auth, async (req, res) => {
               box_no
             ]);
             updatedCount++;
-            console.log(`✅ [LogisticPayment] 데이터 업데이트 완료: ${packing_code} (박스 ${box_no})`);
+            // 데이터 업데이트 완료
           } else {
             // 새 데이터 삽입
             await connection.execute(`
@@ -101,24 +104,26 @@ router.put('/update', auth, async (req, res) => {
                 packing_code,
                 logistic_company,
                 box_no,
+                barcode_number,
                 tracking_number,
                 logistic_fee,
                 is_paid,
                 description
-              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             `, [
               mj_packing_list_id,
               pl_date,
               packing_code,
               logistic_company || null,
               box_no,
+              barcode_number || null,
               tracking_number || null,
               logistic_fee || 0,
               is_paid || false,
               description || null
             ]);
             savedCount++;
-            console.log(`✅ [LogisticPayment] 새 데이터 저장 완료: ${packing_code} (박스 ${box_no})`);
+            // 새 데이터 저장 완료
           }
       } catch (error) {
         console.error(`❌ [LogisticPayment] 데이터 처리 오류:`, error);
@@ -129,7 +134,7 @@ router.put('/update', auth, async (req, res) => {
     // 트랜잭션 커밋
     await connection.commit();
 
-    console.log(`🎉 [LogisticPayment] 저장 완료: ${savedCount}개 새로 저장, ${updatedCount}개 업데이트`);
+    // 저장 완료
 
     res.json({
       success: true,
@@ -164,7 +169,7 @@ router.get('/by-date/:date', auth, async (req, res) => {
   try {
     const { date } = req.params;
     
-    console.log('📅 [LogisticPayment] 날짜별 데이터 조회:', date);
+    // 날짜별 데이터 조회
 
     const [records] = await connection.execute(`
       SELECT 
@@ -178,7 +183,7 @@ router.get('/by-date/:date', auth, async (req, res) => {
       ORDER BY lp.packing_code, lp.created_at
     `, [date]);
 
-    console.log(`✅ [LogisticPayment] 조회 완료: ${records.length}개 레코드`);
+    // 조회 완료
 
     res.json({
       success: true,
@@ -204,7 +209,7 @@ router.get('/summary-by-date/:date', auth, async (req, res) => {
   try {
     const { date } = req.params;
     
-    console.log('📊 [LogisticPayment] 날짜별 물류비 합계 조회:', date);
+    // 날짜별 물류비 합계 조회
 
     const [records] = await connection.execute(`
       SELECT 
@@ -219,7 +224,7 @@ router.get('/summary-by-date/:date', auth, async (req, res) => {
       ORDER BY packing_code
     `, [date]);
 
-    console.log(`✅ [LogisticPayment] 물류비 합계 조회 완료: ${records.length}개 포장코드`);
+    // 물류비 합계 조회 완료
 
     res.json({
       success: true,
@@ -243,7 +248,7 @@ router.get('/total-shipping-cost', auth, async (req, res) => {
   const connection = await pool.getConnection();
   
   try {
-    console.log('💰 [LogisticPayment] 전체 물류비 합계 조회 시작');
+    // 전체 물류비 합계 조회
 
     const [result] = await connection.execute(`
       SELECT 

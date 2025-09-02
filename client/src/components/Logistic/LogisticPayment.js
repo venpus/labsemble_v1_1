@@ -88,6 +88,7 @@ const LogisticPayment = () => {
           packing_code: item.packing_code,
           logistic_company: item.logistic_company || null,
           box_no: item.box_no,
+          barcode_number: item.barcode_number || null,
           tracking_number: item.tracking_number || null,
           logistic_fee: parseFloat(item.shipping_cost) || 0, // 숫자로 변환
           is_paid: item.payment_status === 'paid' || false,
@@ -256,6 +257,7 @@ const LogisticPayment = () => {
               total_boxes: actualBoxCount,
               repeat_number: i + 1,
               total_repeats: actualBoxCount,
+              barcode_number: savedItem ? savedItem.barcode_number : '',
               tracking_number: savedItem ? savedItem.tracking_number : '',
               shipping_cost: savedItem ? parseFloat(savedItem.logistic_fee) || 0 : 0, // 숫자로 변환
               payment_status: savedItem ? (savedItem.is_paid ? 'paid' : 'unpaid') : 'unpaid',
@@ -496,11 +498,12 @@ const LogisticPayment = () => {
         <div className="overflow-x-auto">
           {/* 테이블 헤더 */}
           <div className="bg-gray-50 border-b border-gray-200">
-            <div className="grid grid-cols-8 gap-4 px-4 py-3 text-sm font-medium text-gray-700">
+            <div className="grid grid-cols-9 gap-4 px-4 py-3 text-sm font-medium text-gray-700">
               <div className="col-span-1">번호</div>
               <div className="col-span-1">포장코드</div>
               <div className="col-span-1">박스 순서</div>
               <div className="col-span-1">물류회사</div>
+              <div className="col-span-1">바코드넘버</div>
               <div className="col-span-1">송장번호</div>
               <div className="col-span-1">배송비</div>
               <div className="col-span-1">결제여부</div>
@@ -543,7 +546,7 @@ const LogisticPayment = () => {
               </div>
             ) : (
               paymentData.map((item, index) => (
-                <div key={item.id} className="grid grid-cols-8 gap-4 px-4 py-3 text-sm">
+                <div key={item.id} className="grid grid-cols-9 gap-4 px-4 py-3 text-sm">
                   {/* 번호 */}
                   <div className="col-span-1 text-gray-900 font-medium">
                     {index + 1}
@@ -575,6 +578,17 @@ const LogisticPayment = () => {
                     <div className="text-gray-900">
                       {item.logistic_company || '-'}
                     </div>
+                  </div>
+                  
+                  {/* 바코드넘버 */}
+                  <div className="col-span-1">
+                    <input
+                      type="text"
+                      value={item.barcode_number || ''}
+                      onChange={(e) => handleDataChange(index, 'barcode_number', e.target.value)}
+                      className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      placeholder="바코드넘버 입력"
+                    />
                   </div>
                   
                   {/* 송장번호 */}

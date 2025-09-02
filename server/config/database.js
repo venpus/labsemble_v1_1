@@ -465,6 +465,121 @@ async function migrateMJProjectQuantityFields() {
   }
 }
 
+// mj_project_payments 테이블 마이그레이션 함수
+async function migrateMJProjectPaymentsTable() {
+  const connection = await pool.getConnection();
+  
+  try {
+    console.log('🔄 mj_project_payments 테이블 마이그레이션 시작...');
+    
+    // mj_project_payments 테이블 존재 여부 확인
+    const [tables] = await connection.execute(
+      "SHOW TABLES LIKE 'mj_project_payments'"
+    );
+
+    if (tables.length === 0) {
+      console.log('📋 mj_project_payments 테이블이 존재하지 않습니다. 생성 중...');
+      
+      // SQL 파일 읽기
+      const fs = require('fs');
+      const path = require('path');
+      const migrationPath = path.join(__dirname, '..', 'migrations', 'create_mj_project_payments_table.sql');
+      
+      if (fs.existsSync(migrationPath)) {
+        const migrationSQL = fs.readFileSync(migrationPath, 'utf8');
+        
+        // SQL 문을 세미콜론으로 분리하여 실행
+        const statements = migrationSQL.split(';').filter(stmt => stmt.trim());
+        
+        for (const statement of statements) {
+          if (statement.trim()) {
+            await connection.execute(statement.trim());
+          }
+        }
+        
+        console.log('✅ mj_project_payments 테이블 생성 및 데이터 마이그레이션 완료');
+      } else {
+        console.error('❌ 마이그레이션 SQL 파일을 찾을 수 없습니다:', migrationPath);
+      }
+    } else {
+      console.log('ℹ️ mj_project_payments 테이블이 이미 존재합니다.');
+      
+      // 기존 테이블 구조 확인
+      const [columns] = await connection.execute("SHOW COLUMNS FROM mj_project_payments");
+      const hasPaymentType = columns.some(col => col.Field === 'payment_type');
+      
+      if (hasPaymentType) {
+        console.log('🔄 기존 ENUM 형식을 JSON 형식으로 마이그레이션 중...');
+        
+        // 기존 데이터를 JSON 형식으로 변환
+        const [existingData] = await connection.execute(`
+          SELECT project_id, payment_type, amount, is_paid, payment_date
+          FROM mj_project_payments
+          ORDER BY project_id, payment_type
+        `);
+        
+        // 프로젝트별로 데이터 그룹화
+        const projectData = {};
+        existingData.forEach(row => {
+          if (!projectData[row.project_id]) {
+            projectData[row.project_id] = {
+              paymentStatus: {},
+              paymentDates: {},
+              paymentAmounts: {}
+            };
+          }
+          projectData[row.project_id].paymentStatus[row.payment_type] = Boolean(row.is_paid);
+          projectData[row.project_id].paymentDates[row.payment_type] = row.payment_date;
+          projectData[row.project_id].paymentAmounts[row.payment_type] = Number(row.amount) || 0;
+        });
+        
+        // 기존 테이블 삭제 후 새로 생성
+        await connection.execute('DROP TABLE mj_project_payments');
+        
+        // 새 테이블 생성
+        const fs = require('fs');
+        const path = require('path');
+        const migrationPath = path.join(__dirname, '..', 'migrations', 'create_mj_project_payments_table.sql');
+        const migrationSQL = fs.readFileSync(migrationPath, 'utf8');
+        const statements = migrationSQL.split(';').filter(stmt => stmt.trim());
+        for (const statement of statements) {
+          if (statement.trim() && !statement.trim().startsWith('INSERT')) {
+            await connection.execute(statement.trim());
+          }
+        }
+        
+        // 기존 데이터를 JSON 형식으로 재삽입
+        for (const [projectId, data] of Object.entries(projectData)) {
+          await connection.execute(`
+            INSERT INTO mj_project_payments (project_id, payment_status, payment_dates, payment_amounts)
+            VALUES (?, ?, ?, ?)
+          `, [
+            projectId,
+            JSON.stringify(data.paymentStatus),
+            JSON.stringify(data.paymentDates),
+            JSON.stringify(data.paymentAmounts)
+          ]);
+        }
+        
+        console.log('✅ JSON 형식으로 마이그레이션 완료');
+      }
+      
+      // 기존 데이터 확인
+      const [countResult] = await connection.execute(
+        'SELECT COUNT(*) as count FROM mj_project_payments'
+      );
+      console.log(`ℹ️ 현재 mj_project_payments 테이블에 ${countResult[0].count}개의 레코드가 있습니다.`);
+    }
+    
+    return { success: true };
+  } catch (error) {
+    console.error('❌ mj_project_payments 테이블 마이그레이션 오류:', error);
+    return { success: false, error: error.message };
+  } finally {
+    connection.release();
+  }
+}
+
 // mj_packingList 테이블 마이그레이션 함수
 async function migrateMJPackingListTable() {
   const connection = await pool.getConnection();
@@ -1022,6 +1137,7 @@ async function migrateLogisticPaymentTable() {
           packing_code VARCHAR(255) NOT NULL,
           logistic_company VARCHAR(255),
           box_no INT NOT NULL DEFAULT 1 COMMENT '박스 번호 (1부터 시작)',
+          barcode_number VARCHAR(255),
           tracking_number VARCHAR(255),
           logistic_fee DECIMAL(10,2) DEFAULT 0.00,
           is_paid BOOLEAN DEFAULT FALSE,
@@ -1032,6 +1148,7 @@ async function migrateLogisticPaymentTable() {
           INDEX idx_packing_code (packing_code),
           INDEX idx_logistic_company (logistic_company),
           INDEX idx_box_no (box_no),
+          INDEX idx_barcode_number (barcode_number),
           INDEX idx_pl_date (pl_date),
           INDEX idx_packing_code_list_id (packing_code, mj_packing_list_id),
           INDEX idx_company_packing_code (logistic_company, packing_code),
@@ -1053,6 +1170,7 @@ async function migrateLogisticPaymentTable() {
         { name: 'packing_code', sql: 'ADD COLUMN packing_code VARCHAR(255) NOT NULL' },
         { name: 'logistic_company', sql: 'ADD COLUMN logistic_company VARCHAR(255)' },
         { name: 'box_no', sql: 'ADD COLUMN box_no INT NOT NULL DEFAULT 1 COMMENT \'박스 번호 (1부터 시작)\'' },
+        { name: 'barcode_number', sql: 'ADD COLUMN barcode_number VARCHAR(255) AFTER box_no' },
         { name: 'tracking_number', sql: 'ADD COLUMN tracking_number VARCHAR(255)' },
         { name: 'logistic_fee', sql: 'ADD COLUMN logistic_fee DECIMAL(10,2) DEFAULT 0.00' },
         { name: 'is_paid', sql: 'ADD COLUMN is_paid BOOLEAN DEFAULT FALSE' },
@@ -1201,6 +1319,15 @@ async function initializeDatabase() {
       console.error('❌ mj_project quantity 필드 마이그레이션 실패:', quantityMigrationResult.error);
     }
     
+    // mj_project_payments 테이블 마이그레이션 실행
+    console.log('🔄 mj_project_payments 테이블 마이그레이션 시작...');
+    const projectPaymentsMigrationResult = await migrateMJProjectPaymentsTable();
+    if (projectPaymentsMigrationResult.success) {
+      console.log('✅ mj_project_payments 테이블 마이그레이션 완료');
+    } else {
+      console.error('❌ mj_project_payments 테이블 마이그레이션 실패:', projectPaymentsMigrationResult.error);
+    }
+    
     // mj_packingList 테이블 마이그레이션 실행
     console.log('🔄 mj_packingList 테이블 마이그레이션 시작...');
     const packingListMigrationResult = await migrateMJPackingListTable();
@@ -1285,6 +1412,7 @@ module.exports = {
   migratePaymentColumns,
   migrateWarehouseStockFields,
   migrateMJProjectQuantityFields,
+  migrateMJProjectPaymentsTable,
   migrateMJPackingListTable,
   migrateFinanceIncomingTable,
   migrateFinanceExpenseTable,

@@ -94,12 +94,7 @@ router.get('/project/:projectId/entries', authMiddleware, async (req, res) => {
         ORDER BY created_at ASC
       `, [entry.id]);
       
-      // 디버깅: 이미지 조회 결과 확인
-      console.log(`🔍 Entry ${entry.id} 이미지 조회 결과:`, {
-        entryId: entry.id,
-        imagesFound: images.length,
-        imagesData: images
-      });
+      // 이미지 조회 결과 확인
       
       // 이미지 데이터 매핑
       const mappedImages = images.map(image => ({
@@ -114,11 +109,7 @@ router.get('/project/:projectId/entries', authMiddleware, async (req, res) => {
         createdAt: image.created_at
       }));
       
-      console.log(`📸 Entry ${entry.id} 매핑된 이미지:`, {
-        entryId: entry.id,
-        mappedImagesCount: mappedImages.length,
-        mappedImages: mappedImages
-      });
+      // 매핑된 이미지
       
       return {
         id: entry.id,
@@ -133,12 +124,7 @@ router.get('/project/:projectId/entries', authMiddleware, async (req, res) => {
       };
     }));
     
-    // 디버깅: 최종 응답 데이터 확인
-    console.log('📤 최종 응답 데이터:', {
-      totalEntries: responseData.length,
-      entriesWithImages: responseData.filter(entry => entry.images && entry.images.length > 0).length,
-      fullResponseData: responseData
-    });
+    // 최종 응답 데이터 확인
     
     res.json({
       success: true,
@@ -349,8 +335,7 @@ const storage = multer.diskStorage({
       // 디렉토리가 없으면 생성
       await fs.mkdir(uploadPath, { recursive: true });
       
-      // 디버깅: 실제 업로드 경로 확인
-      console.log('📁 이미지 업로드 경로:', uploadPath);
+      // 이미지 업로드 경로 확인
       
       cb(null, uploadPath);
     } catch (error) {
@@ -421,14 +406,7 @@ router.post('/upload-images', authMiddleware, upload.array('images', 5), async (
     const imageRecords = [];
     
     for (const file of uploadedFiles) {
-      // 디버깅: 업로드된 파일 정보 확인
-      console.log('📤 업로드된 파일 정보:', {
-        originalname: file.originalname,
-        filename: file.filename,
-        path: file.path,
-        size: file.size,
-        mimetype: file.mimetype
-      });
+      // 업로드된 파일 정보 확인
       
       const imageRecord = {
         project_id: parseInt(projectId),
@@ -598,7 +576,7 @@ router.get('/project/:projectId/total-quantity', authMiddleware, async (req, res
   try {
     const { projectId } = req.params;
     
-    console.log('🔄 [warehouse] 프로젝트별 총 quantity 조회 시작:', { projectId });
+    // 프로젝트별 총 quantity 조회
     
     // 해당 프로젝트의 warehouse_entries에서 quantity 합산
     const [result] = await connection.execute(`
@@ -609,11 +587,7 @@ router.get('/project/:projectId/total-quantity', authMiddleware, async (req, res
     
     const totalQuantity = result[0]?.total_quantity || 0;
     
-    console.log('✅ [warehouse] 프로젝트별 총 quantity 조회 완료:', {
-      projectId,
-      totalQuantity,
-      rawResult: result
-    });
+    // 프로젝트별 총 quantity 조회 완료
     
     res.json({
       success: true,
@@ -645,7 +619,7 @@ router.get('/image/:filename', async (req, res) => {
     
     // 파일 존재 확인
     if (!fs.existsSync(imagePath)) {
-      console.log(`❌ [warehouse] 이미지 파일을 찾을 수 없음: ${imagePath}`);
+      // 이미지 파일을 찾을 수 없음
       return res.status(404).json({ error: '이미지를 찾을 수 없습니다.' });
     }
     
@@ -671,7 +645,7 @@ router.get('/image/:filename', async (req, res) => {
     res.setHeader('Cache-Control', 'public, max-age=31536000'); // 1년 캐시
     res.send(imageBuffer);
     
-    console.log(`✅ [warehouse] 이미지 제공 성공: ${filename} (${stats.size} bytes)`);
+    // 이미지 제공 성공
     
   } catch (error) {
     console.error('❌ [warehouse] 이미지 프록시 오류:', error);
@@ -819,31 +793,10 @@ router.get('/products-with-entry-quantity', authMiddleware, async (req, res) => 
         const path = require('path');
         const imagePath = path.join(__dirname, '../uploads/project/mj/registImage', firstImage.file_name);
         
-        try {
-          const fileExists = fs.existsSync(imagePath);
-          console.log(`🔍 [warehouse] 이미지 파일 존재 확인:`, {
-            projectId: product.project_id,
-            fileName: firstImage.file_name,
-            fullPath: imagePath,
-            exists: fileExists,
-            fileSize: fileExists ? fs.statSync(imagePath).size : 'N/A'
-          });
-        } catch (error) {
-          console.log(`❌ [warehouse] 이미지 파일 확인 중 오류:`, {
-            projectId: product.project_id,
-            fileName: firstImage.file_name,
-            error: error.message
-          });
-        }
+        // 이미지 파일 존재 확인
       }
       
-      console.log(`🖼️ [warehouse] 프로젝트 ${product.project_id} 이미지 조회:`, {
-        projectId: product.project_id,
-        projectName: product.project_name,
-        imageFound: !!firstImage,
-        imageData: firstImage,
-        totalImages: images.length
-      });
+      // 프로젝트 이미지 조회
 
       const responseDataItem = {
         project_id: product.project_id,
@@ -873,30 +826,12 @@ router.get('/products-with-entry-quantity', authMiddleware, async (req, res) => 
         } : null
       };
 
-      // 이미지 정보 로깅 추가
-      if (firstImage) {
-        console.log(`🖼️ [warehouse] 프로젝트 ${product.project_id} 이미지 URL 생성:`, {
-          projectId: product.project_id,
-          projectName: product.project_name,
-          originalName: firstImage.original_name,
-          fileName: firstImage.file_name,
-          filePath: firstImage.file_path,
-          generatedUrl: `/uploads/project/mj/registImage/${firstImage.file_name}`,
-          finalUrl: `/uploads/project/mj/registImage/${firstImage.file_name}`
-        });
-      }
+      // 이미지 정보 로깅
 
       return responseDataItem;
     }));
 
-    console.log('✅ [warehouse] remain_quantity > 0인 프로젝트 조회 완료 (기존 API):', {
-      totalProjects: products.length,
-      projects: products.map(p => ({
-        id: p.project_id,
-        name: p.project_name,
-        remain_quantity: p.remain_quantity
-      }))
-    });
+    // remain_quantity > 0인 프로젝트 조회 완료
 
 
 

@@ -5,6 +5,8 @@ yarn-debug.log*
 yarn-error.log*
 package-lock.json
 yarn.lock
+#MJ -Mobile APP
+MJ_APP/
 
 # Production builds
 client/build/

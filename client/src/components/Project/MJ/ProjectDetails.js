@@ -8,6 +8,7 @@ import {
   Calendar,
   Package,
   DollarSign,
+  CreditCard,
   Link as LinkIcon,
   Image as ImageIcon,
   User,
@@ -29,6 +30,7 @@ const ProjectDetails = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [activeTab, setActiveTab] = useState('basic');
+  const [hasUnsavedPaymentChanges, setHasUnsavedPaymentChanges] = useState(false);
 
   // URL 쿼리 파라미터에서 탭 정보 가져오기
   useEffect(() => {
@@ -72,6 +74,29 @@ const ProjectDetails = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  // 탭 변경 핸들러 (저장되지 않은 변경사항 확인)
+  const handleTabChange = (newTab) => {
+    if (hasUnsavedPaymentChanges && activeTab === 'paymentInfo') {
+      const shouldLeave = window.confirm(
+        '저장되지 않은 결제 정보 변경사항이 있습니다.\n' +
+        '다른 탭으로 이동하시겠습니까?\n\n' +
+        '확인: 변경사항을 저장하지 않고 이동\n' +
+        '취소: 현재 탭에 머물기'
+      );
+      
+      if (!shouldLeave) {
+        return; // 사용자가 취소한 경우 탭 변경하지 않음
+      }
+    }
+    
+    setActiveTab(newTab);
+  };
+
+  // Payment 데이터 변경 핸들러
+  const handlePaymentDataChange = (hasChanges) => {
+    setHasUnsavedPaymentChanges(hasChanges);
   };
 
   // 프로젝트 상태 업데이트 처리
@@ -245,7 +270,7 @@ const ProjectDetails = () => {
           <div className="bg-gray-50 rounded-lg p-2 border border-gray-200">
             <nav className="flex space-x-2">
               <button
-                onClick={() => setActiveTab('basic')}
+                onClick={() => handleTabChange('basic')}
                 className={`py-3 px-4 border-2 font-medium text-sm transition-all duration-200 rounded-lg flex items-center ${
                   activeTab === 'basic'
                     ? 'border-blue-500 text-blue-600 bg-blue-50 shadow-sm'
@@ -256,7 +281,7 @@ const ProjectDetails = () => {
                 기본정보
               </button>
               <button
-                onClick={() => setActiveTab('payment')}
+                onClick={() => handleTabChange('payment')}
                 className={`py-3 px-4 border-2 font-medium text-sm transition-all duration-200 rounded-lg flex items-center ${
                   activeTab === 'payment'
                     ? 'border-green-500 text-green-600 bg-green-50 shadow-sm'
@@ -264,10 +289,21 @@ const ProjectDetails = () => {
                 }`}
               >
                 <DollarSign className="w-4 h-4 mr-2" />
+                비용 정보
+              </button>
+              <button
+                onClick={() => handleTabChange('paymentInfo')}
+                className={`py-3 px-4 border-2 font-medium text-sm transition-all duration-200 rounded-lg flex items-center ${
+                  activeTab === 'paymentInfo'
+                    ? 'border-emerald-500 text-emerald-600 bg-emerald-50 shadow-sm'
+                    : 'border-gray-200 text-gray-500 hover:text-emerald-600 hover:bg-emerald-50 hover:border-emerald-300 bg-white'
+                }`}
+              >
+                <CreditCard className="w-4 h-4 mr-2" />
                 결제정보
               </button>
               <button
-                onClick={() => setActiveTab('delivery')}
+                onClick={() => handleTabChange('delivery')}
                 className={`py-3 px-4 border-2 font-medium text-sm transition-all duration-200 rounded-lg flex items-center ${
                   activeTab === 'delivery'
                     ? 'border-orange-500 text-orange-600 bg-orange-50 shadow-sm'
@@ -278,7 +314,7 @@ const ProjectDetails = () => {
                 납기 정보
               </button>
               <button
-                onClick={() => setActiveTab('shipping')}
+                onClick={() => handleTabChange('shipping')}
                 className={`py-3 px-4 border-2 font-medium text-sm transition-all duration-200 rounded-lg flex items-center ${
                   activeTab === 'shipping'
                     ? 'border-purple-500 text-purple-600 bg-purple-50 shadow-sm'
@@ -556,9 +592,19 @@ const ProjectDetails = () => {
               <Delivery project={project} onUpdate={handleProjectUpdate} />
             )}
 
-            {/* 결제정보 탭 */}
+            {/* 비용 정보 탭 */}
             {activeTab === 'payment' && (
               <Payment project={project} user={user} />
+            )}
+
+            {/* 결제정보 탭 */}
+            {activeTab === 'paymentInfo' && (
+              <Payment 
+                project={project} 
+                user={user} 
+                showPaymentToSupplier={true} 
+                onPaymentDataChange={handlePaymentDataChange}
+              />
             )}
 
             {/* 물류 정보 탭 */}

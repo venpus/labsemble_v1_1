@@ -49,6 +49,7 @@ function App() {
               <Route path="/dashboard/mj-packing-list/date/:date" element={<Dashboard />} />
               <Route path="/dashboard/mj-packing-list/logistic-payment" element={<Dashboard />} />
               <Route path="/dashboard/mj-packing-list/date-detail" element={<Dashboard />} />
+              <Route path="/dashboard/mj-packing-list/packing-code-detail" element={<Dashboard />} />
               <Route path="/dashboard/finance" element={<Dashboard />} />
               <Route path="/services/mj-distribution" element={<ProjectRegister />} />
             </Routes>

@@ -8,10 +8,10 @@ const PaymentHeader = ({ isAdmin, isAdminLoading, paymentStatus, onSaveAll, isSa
         <div>
           <h2 className="text-xl font-semibold text-gray-900 flex items-center">
             <DollarSign className="w-5 h-5 mr-2 text-green-600" />
-            결제 정보
+            비용 정보
           </h2>
           <p className="text-sm text-gray-600 mt-1">
-            프로젝트의 가격 및 결제 관련 정보를 확인할 수 있습니다.
+            프로젝트의 가격 및 비용 관련 정보를 확인할 수 있습니다.
           </p>
         </div>
         
