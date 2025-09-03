@@ -415,12 +415,13 @@ const startServer = async () => {
     
     console.log('✅ 데이터베이스 초기화 완료!');
     
-    // 서버 시작
-    app.listen(PORT, () => {
+    // 서버 시작 (모든 IP에서 접근 가능하도록 설정)
+    app.listen(PORT, '0.0.0.0', () => {
       console.log(`🚀 Manufacturing API 서버가 포트 ${PORT}에서 실행 중입니다.`);
       console.log(`🌍 서버 환경: ${NODE_ENV} (${isProduction ? '상용' : '개발'})`);
       console.log(`🌍 Timezone: ${process.env.TZ}`);
       console.log(`📊 마이그레이션 상태 확인: http://localhost:${PORT}/api/migration/status`);
+      console.log(`📱 모바일 앱 접근: http://172.16.21.172:${PORT}/api/mj-project`);
       console.log('💡 서버가 완전히 시작되기까지 몇 초 정도 소요될 수 있습니다.');
     });
   } catch (error) {

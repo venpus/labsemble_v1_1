@@ -85,9 +85,9 @@ const ProjectSearchModal = ({ isOpen, onClose, onSelectProject }) => {
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-4xl max-h-[80vh] overflow-hidden">
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-4xl max-h-[80vh] flex flex-col overflow-hidden">
         {/* 헤더 */}
-        <div className="flex items-center justify-between p-6 border-b border-gray-200">
+        <div className="flex items-center justify-between p-6 border-b border-gray-200 flex-shrink-0">
           <div>
             <h2 className="text-xl font-semibold text-gray-900">프로젝트 검색</h2>
             <p className="text-sm text-gray-600">잔여 재고가 있는 프로젝트 중에서 선택하세요</p>
@@ -101,7 +101,7 @@ const ProjectSearchModal = ({ isOpen, onClose, onSelectProject }) => {
         </div>
 
         {/* 검색 입력 */}
-        <div className="p-6 border-b border-gray-200">
+        <div className="p-6 border-b border-gray-200 flex-shrink-0">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
             <input
@@ -115,7 +115,7 @@ const ProjectSearchModal = ({ isOpen, onClose, onSelectProject }) => {
         </div>
 
         {/* 프로젝트 목록 */}
-        <div className="flex-1 overflow-y-auto p-6">
+        <div className="flex-1 overflow-y-auto p-6 min-h-0">
           {loading ? (
             <div className="text-center py-12">
               <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
@@ -241,7 +241,7 @@ const ProjectSearchModal = ({ isOpen, onClose, onSelectProject }) => {
         </div>
 
         {/* 푸터 */}
-        <div className="p-6 border-t border-gray-200 bg-gray-50">
+        <div className="p-6 border-t border-gray-200 bg-gray-50 flex-shrink-0">
           <div className="flex justify-between items-center text-sm text-gray-600">
             <span>총 {filteredProjects.length}개 프로젝트</span>
             <span>잔여 재고 {'>'} 0 조건</span>
