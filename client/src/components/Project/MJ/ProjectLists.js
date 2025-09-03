@@ -312,21 +312,23 @@ const ProjectLists = () => {
   };
 
     const getExportStatusBadge = (project) => {
-    // mj_project 테이블의 quantity와 warehouse_quantity를 비교하여 출고 상태 결정
+    // mj_project 테이블의 quantity, entry_quantity, remain_quantity, export_quantity를 비교하여 출고 상태 결정
     const projectQuantity = Number(project.quantity) || 0;
-    const warehouseQuantity = Number(project.warehouse_quantity) || 0;
+    const entryQuantity = Number(project.entry_quantity) || 0;
+    const remainQuantity = Number(project.remain_quantity) || 0;
+    const exportQuantity = Number(project.export_quantity) || 0;
     
-    // 배송중: warehouse_quantity > 0 (재고가 남아있음)
-    if (warehouseQuantity > 0) {
+    // 입고대기: entry_quantity가 0인 경우
+    if (entryQuantity === 0) {
       return (
-        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-          배송중
+        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
+          입고대기
         </span>
       );
     }
     
-    // 출고완료: warehouse_quantity가 0이고, 프로젝트 수량이 0보다 큼
-    if (warehouseQuantity === 0 && projectQuantity > 0) {
+    // 출고완료: remain_quantity가 0이고 export_quantity가 quantity와 같은 경우
+    if (remainQuantity === 0 && exportQuantity === projectQuantity && projectQuantity > 0) {
       return (
         <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
           출고완료
@@ -334,11 +336,11 @@ const ProjectLists = () => {
       );
     }
     
-    // 출고 대기: warehouse_quantity가 0이고 프로젝트 수량이 0
-    if (warehouseQuantity === 0 && projectQuantity === 0) {
+    // 배송중: remain_quantity > 0 (재고가 남아있음)
+    if (remainQuantity > 0) {
       return (
-        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
-          출고 대기
+        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+          배송중
         </span>
       );
     }

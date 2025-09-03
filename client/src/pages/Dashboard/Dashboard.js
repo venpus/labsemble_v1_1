@@ -9,6 +9,7 @@ import ProjectDetails from '../../components/Project/MJ/ProjectDetails';
 import { MJCalendar } from '../../components/Calendar';
 import { MJPackingList, MakePackingList, PackingListDetail, PackingListDateDetail, LogisticPayment, PackingCodeDetailList } from '../../components/Logistic';
 import { Finance } from '../../components/Finance';
+import MJProjectSummaryCards from '../../components/Dashboard/MJProjectSummaryCards';
 
 const Dashboard = () => {
   const { user } = useAuth();
@@ -116,6 +117,11 @@ const Dashboard = () => {
               LABSEMBLE 대시보드에 오신 것을 환영합니다.
             </p>
             
+            {/* MJ 프로젝트 요약 카드 (관리자 또는 MJ유통 파트너만 표시) */}
+            {(user?.isAdmin || user?.partnerName === 'MJ유통') && (
+              <MJProjectSummaryCards />
+            )}
+
             {/* Quick Stats */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
               <div className="bg-white p-6 rounded-lg shadow">
