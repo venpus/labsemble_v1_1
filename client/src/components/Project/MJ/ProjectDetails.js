@@ -167,7 +167,17 @@ const ProjectDetails = () => {
   };
 
   const handleBackToList = () => {
-    navigate('/dashboard/mj-projects');
+    // URL에서 return 파라미터를 확인하여 페이지 상태 복원
+    const urlParams = new URLSearchParams(window.location.search);
+    const returnParams = urlParams.get('return');
+    
+    if (returnParams) {
+      // return 파라미터가 있으면 해당 페이지로 이동
+      navigate(`/dashboard/mj-projects?${returnParams}`);
+    } else {
+      // return 파라미터가 없으면 기본 목록으로 이동
+      navigate('/dashboard/mj-projects');
+    }
   };
 
   const formatDate = (dateString) => {

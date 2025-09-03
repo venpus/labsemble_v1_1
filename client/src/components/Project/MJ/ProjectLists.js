@@ -12,13 +12,15 @@ import {
   Truck,
   Link as LinkIcon
 } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import ListSearch from './ListSearch';
 import { formatDate } from '../../../utils/timezone';
 
 const ProjectLists = () => {
   const { user, isAuthenticated } = useAuth();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  
   const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -31,21 +33,43 @@ const ProjectLists = () => {
   const [filterShippingStatus, setFilterShippingStatus] = useState('all');
   const [filterWarehouseStatus, setFilterWarehouseStatus] = useState('all');
 
+  // URL 파라미터에서 페이지 상태 복원
+  useEffect(() => {
+    const page = searchParams.get('page');
+    const limit = searchParams.get('limit');
+    
+    console.log('🔄 [ProjectLists] URL 파라미터 복원:', { page, limit, searchParams: searchParams.toString() });
+    
+    if (page) {
+      const pageNum = parseInt(page, 10) || 1;
+      console.log('📄 [ProjectLists] 페이지 복원:', pageNum);
+      setCurrentPage(pageNum);
+    }
+    if (limit) {
+      const limitNum = parseInt(limit, 10) || 10;
+      console.log('📊 [ProjectLists] 페이지당 항목 수 복원:', limitNum);
+      setItemsPerPage(limitNum);
+    }
+  }, [searchParams]);
+
   useEffect(() => {
     if (isAuthenticated) {
       fetchProjects();
     }
   }, [isAuthenticated]);
 
-  // itemsPerPage가 변경되면 현재 페이지를 1로 리셋
+  // itemsPerPage가 변경되면 현재 페이지를 1로 리셋 (URL 파라미터가 없을 때만)
   useEffect(() => {
-    setCurrentPage(1);
-  }, [itemsPerPage]);
+    const page = searchParams.get('page');
+    if (!page) {
+      setCurrentPage(1);
+    }
+  }, [itemsPerPage, searchParams]);
 
   // 프로젝트 데이터가 변경되면 필터링된 목록 업데이트
   useEffect(() => {
     applyFilters();
-  }, [projects, searchTerm, filterOrderStatus, filterShippingStatus, filterWarehouseStatus]);
+  }, [projects, searchTerm, filterOrderStatus, filterShippingStatus, filterWarehouseStatus, searchParams]);
 
   // 검색 및 필터링 적용
   const applyFilters = () => {
@@ -97,7 +121,22 @@ const ProjectLists = () => {
 
     setFilteredProjects(filtered);
     setTotalItems(filtered.length);
-    setCurrentPage(1); // 필터 적용 시 첫 페이지로 이동
+    
+    // URL 파라미터가 없을 때만 첫 페이지로 이동 (검색/필터링 시)
+    const page = searchParams.get('page');
+    console.log('🔍 [ProjectLists] applyFilters 실행:', { 
+      filteredCount: filtered.length, 
+      hasPageParam: !!page, 
+      currentPage: currentPage,
+      searchParams: searchParams.toString()
+    });
+    
+    if (!page) {
+      console.log('📄 [ProjectLists] 페이지 파라미터 없음, 1페이지로 리셋');
+      setCurrentPage(1);
+    } else {
+      console.log('📄 [ProjectLists] 페이지 파라미터 있음, 페이지 유지:', page);
+    }
   };
 
   const fetchProjects = async () => {
@@ -133,11 +172,23 @@ const ProjectLists = () => {
   };
 
   const handleViewProject = (projectId) => {
-    navigate(`/dashboard/mj-projects/${projectId}`);
+    // 현재 페이지 정보를 URL에 포함하여 상세보기로 이동
+    const currentUrl = new URL(window.location);
+    const returnParams = new URLSearchParams();
+    returnParams.set('page', currentPage.toString());
+    returnParams.set('limit', itemsPerPage.toString());
+    
+    navigate(`/dashboard/mj-projects/${projectId}?return=${encodeURIComponent(returnParams.toString())}`);
   };
 
   const handleEditProject = (projectId) => {
-    navigate(`/dashboard/mj-projects/${projectId}/edit`);
+    // 편집 페이지로 이동할 때도 현재 페이지 정보 포함
+    const currentUrl = new URL(window.location);
+    const returnParams = new URLSearchParams();
+    returnParams.set('page', currentPage.toString());
+    returnParams.set('limit', itemsPerPage.toString());
+    
+    navigate(`/dashboard/mj-projects/${projectId}/edit?return=${encodeURIComponent(returnParams.toString())}`);
   };
 
   const handleDeleteProject = async (projectId) => {
@@ -171,14 +222,28 @@ const ProjectLists = () => {
     navigate('/services/mj-distribution');
   };
 
+  // URL 파라미터 업데이트 함수
+  const updateUrlParams = (page, limit) => {
+    const newSearchParams = new URLSearchParams(searchParams);
+    if (page) {
+      newSearchParams.set('page', page.toString());
+    }
+    if (limit) {
+      newSearchParams.set('limit', limit.toString());
+    }
+    setSearchParams(newSearchParams);
+  };
+
   // 페이징 관련 함수들
   const handlePageChange = (page) => {
     setCurrentPage(page);
+    updateUrlParams(page, null);
   };
 
   const handleItemsPerPageChange = (newItemsPerPage) => {
     setItemsPerPage(newItemsPerPage);
     setCurrentPage(1); // 페이지 크기가 변경되면 첫 페이지로 이동
+    updateUrlParams(1, newItemsPerPage);
   };
 
   // 현재 페이지의 프로젝트들 계산
@@ -209,10 +274,102 @@ const ProjectLists = () => {
     return pages;
   };
 
+  // 페이징 컨트롤 컴포넌트
+  const PaginationControls = () => {
+    if (projects.length === 0) return null;
+
+    return (
+      <div className="bg-white px-6 py-4 border-t border-gray-200">
+        <div className="flex items-center justify-between">
+          {/* 페이지당 항목 수 선택 */}
+          <div className="flex items-center space-x-2">
+            <span className="text-sm text-gray-700">페이지당 표시:</span>
+            <select
+              value={itemsPerPage}
+              onChange={(e) => handleItemsPerPageChange(Number(e.target.value))}
+              className="border border-gray-300 rounded-md px-3 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            >
+              <option value={10}>10개</option>
+              <option value={15}>15개</option>
+              <option value={20}>20개</option>
+              <option value={30}>30개</option>
+            </select>
+          </div>
+
+          {/* 페이지 정보 */}
+          <div className="text-sm text-gray-700">
+            {totalItems > 0 ? (
+              <>
+                {((currentPage - 1) * itemsPerPage) + 1} - {Math.min(currentPage * itemsPerPage, totalItems)} / {totalItems}개
+              </>
+            ) : (
+              '0개'
+            )}
+          </div>
+
+          {/* 페이지 네비게이션 */}
+          <div className="flex items-center space-x-1">
+            {/* 첫 페이지로 이동 */}
+            <button
+              onClick={() => handlePageChange(1)}
+              disabled={currentPage === 1}
+              className="px-3 py-1 text-sm border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              처음
+            </button>
+            
+            {/* 이전 페이지 */}
+            <button
+              onClick={() => handlePageChange(currentPage - 1)}
+              disabled={currentPage === 1}
+              className="px-3 py-1 text-sm border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              이전
+            </button>
+
+            {/* 페이지 번호들 */}
+            {getPageNumbers().map((page) => (
+              <button
+                key={page}
+                onClick={() => handlePageChange(page)}
+                className={`px-3 py-1 text-sm border rounded-md transition-colors ${
+                  currentPage === page
+                    ? 'bg-blue-600 text-white border-blue-600'
+                    : 'border-gray-300 text-gray-700 hover:bg-gray-50'
+                }`}
+              >
+                {page}
+              </button>
+            ))}
+
+            {/* 다음 페이지 */}
+            <button
+              onClick={() => handlePageChange(currentPage + 1)}
+              disabled={currentPage === totalPages}
+              className="px-3 py-1 text-sm border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              다음
+            </button>
+            
+            {/* 마지막 페이지로 이동 */}
+            <button
+              onClick={() => handlePageChange(totalPages)}
+              disabled={currentPage === totalPages}
+              className="px-3 py-1 text-sm border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              마지막
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   // 검색 및 필터 관련 함수들
   const handleSearch = () => {
     // 검색 버튼 클릭 시 필터 적용 (이미 useEffect에서 자동으로 처리됨)
     setCurrentPage(1);
+    updateUrlParams(1, null);
   };
 
   const handleClearFilters = () => {
@@ -220,6 +377,8 @@ const ProjectLists = () => {
     setFilterOrderStatus('all');
     setFilterShippingStatus('all');
     setFilterWarehouseStatus('all');
+    setCurrentPage(1);
+    updateUrlParams(1, null);
   };
 
   // formatDate 함수는 utils/timezone에서 import하여 사용
@@ -452,6 +611,9 @@ const ProjectLists = () => {
             </div>
           ) : (
             <div>
+              {/* 상단 페이징 컨트롤 */}
+              <PaginationControls />
+              
               <table className="w-full divide-y divide-gray-200">
                 <thead className="bg-gray-50">
                   <tr>
@@ -661,92 +823,8 @@ const ProjectLists = () => {
                 </tbody>
               </table>
               
-              {/* 페이징 컨트롤 */}
-              {projects.length > 0 && (
-                <div className="bg-white px-6 py-4 border-t border-gray-200">
-                  <div className="flex items-center justify-between">
-                    {/* 페이지당 항목 수 선택 */}
-                    <div className="flex items-center space-x-2">
-                      <span className="text-sm text-gray-700">페이지당 표시:</span>
-                      <select
-                        value={itemsPerPage}
-                        onChange={(e) => handleItemsPerPageChange(Number(e.target.value))}
-                        className="border border-gray-300 rounded-md px-3 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                      >
-                        <option value={10}>10개</option>
-                        <option value={15}>15개</option>
-                        <option value={20}>20개</option>
-                        <option value={30}>30개</option>
-                      </select>
-                    </div>
-
-                    {/* 페이지 정보 */}
-                    <div className="text-sm text-gray-700">
-                      {totalItems > 0 ? (
-                        <>
-                          {((currentPage - 1) * itemsPerPage) + 1} - {Math.min(currentPage * itemsPerPage, totalItems)} / {totalItems}개
-                        </>
-                      ) : (
-                        '0개'
-                      )}
-                    </div>
-
-                    {/* 페이지 네비게이션 */}
-                    <div className="flex items-center space-x-1">
-                      {/* 첫 페이지로 이동 */}
-                      <button
-                        onClick={() => handlePageChange(1)}
-                        disabled={currentPage === 1}
-                        className="px-3 py-1 text-sm border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                      >
-                        처음
-                      </button>
-                      
-                      {/* 이전 페이지 */}
-                      <button
-                        onClick={() => handlePageChange(currentPage - 1)}
-                        disabled={currentPage === 1}
-                        className="px-3 py-1 text-sm border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                      >
-                        이전
-                      </button>
-
-                      {/* 페이지 번호들 */}
-                      {getPageNumbers().map((page) => (
-                        <button
-                          key={page}
-                          onClick={() => handlePageChange(page)}
-                          className={`px-3 py-1 text-sm border rounded-md transition-colors ${
-                            currentPage === page
-                              ? 'bg-blue-600 text-white border-blue-600'
-                              : 'border-gray-300 text-gray-700 hover:bg-gray-50'
-                          }`}
-                        >
-                          {page}
-                        </button>
-                      ))}
-
-                      {/* 다음 페이지 */}
-                      <button
-                        onClick={() => handlePageChange(currentPage + 1)}
-                        disabled={currentPage === totalPages}
-                        className="px-3 py-1 text-sm border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                      >
-                        다음
-                      </button>
-                      
-                      {/* 마지막 페이지로 이동 */}
-                      <button
-                        onClick={() => handlePageChange(totalPages)}
-                        disabled={currentPage === totalPages}
-                        className="px-3 py-1 text-sm border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                      >
-                        마지막
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )}
+              {/* 하단 페이징 컨트롤 */}
+              <PaginationControls />
             </div>
           )}
         </div>

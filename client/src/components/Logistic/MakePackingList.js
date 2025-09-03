@@ -646,6 +646,47 @@ const MakePackingList = () => {
     closeAddPackingCodeModal();
   };
 
+  // 액션 버튼들 컴포넌트
+  const ActionButtons = () => {
+    return (
+      <div className="flex space-x-2">
+        <button
+          onClick={openAddPackingCodeModal}
+          className="inline-flex items-center px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 transition-colors"
+        >
+          <Plus className="w-4 h-4 mr-2" />
+          포장코드 추가
+        </button>
+        
+        <button
+          onClick={async () => {
+            try {
+              // 전체 저장 기능 실행
+              const result = await performFullSave();
+              
+              if (result.success) {
+                toast.success(result.message);
+              } else {
+                toast.error(result.message);
+              }
+            } catch (error) {
+              console.error('❌ [전체 저장] 오류:', error);
+              toast.error('전체 저장 중 오류가 발생했습니다.');
+            }
+          }}
+          className={`inline-flex items-center px-4 py-2 text-white text-sm font-medium rounded-lg focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors ${
+            selectedProjectId 
+              ? 'bg-green-600 hover:bg-green-700 focus:ring-green-500' 
+              : 'bg-blue-600 hover:bg-blue-700 focus:ring-blue-500'
+          }`}
+        >
+          <Package className="w-4 h-4 mr-2" />
+          {selectedProjectId ? '전체 저장 (프로젝트 연결됨)' : '전체 저장'}
+        </button>
+      </div>
+    );
+  };
+
   // 전체 저장과 같은 기능을 수행하는 함수 (모든 데이터 저장 + 프로젝트 export_quantity 업데이트)
   const performFullSave = useCallback(async (packingCode = null) => {
     console.log('💾 [performFullSave] 전체 저장 기능 시작:', {
@@ -1061,41 +1102,7 @@ const MakePackingList = () => {
               </div>
             </div>
           </div>
-          <div className="flex space-x-2">
-            <button
-              onClick={openAddPackingCodeModal}
-              className="inline-flex items-center px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 transition-colors"
-            >
-              <Plus className="w-4 h-4 mr-2" />
-              포장코드 추가
-            </button>
-            
-            <button
-              onClick={async () => {
-                try {
-                  // 전체 저장 기능 실행
-                  const result = await performFullSave();
-                  
-                  if (result.success) {
-                    toast.success(result.message);
-                  } else {
-                    toast.error(result.message);
-                  }
-                } catch (error) {
-                  console.error('❌ [전체 저장] 오류:', error);
-                  toast.error('전체 저장 중 오류가 발생했습니다.');
-                }
-              }}
-              className={`inline-flex items-center px-4 py-2 text-white text-sm font-medium rounded-lg focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors ${
-                selectedProjectId 
-                  ? 'bg-green-600 hover:bg-green-700 focus:ring-green-500' 
-                  : 'bg-blue-600 hover:bg-blue-700 focus:ring-blue-500'
-              }`}
-            >
-              <Package className="w-4 h-4 mr-2" />
-              {selectedProjectId ? '전체 저장 (프로젝트 연결됨)' : '전체 저장'}
-            </button>
-          </div>
+          <ActionButtons />
         </div>
         
         <div className="overflow-x-auto">
@@ -1424,6 +1431,13 @@ const MakePackingList = () => {
               )}
             </tbody>
           </table>
+        </div>
+        
+        {/* 하단 액션 버튼들 */}
+        <div className="px-6 py-4 bg-white border-t border-gray-200">
+          <div className="flex justify-end">
+            <ActionButtons />
+          </div>
         </div>
         
         {/* 테이블 하단 정보 */}
