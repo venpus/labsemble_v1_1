@@ -12,9 +12,10 @@ const PackingCodeDetailList = () => {
   const [error, setError] = useState(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [summary, setSummary] = useState({
+    totalQuantity: 0,
+    totalProducts: 0,
     totalBoxes: 0,
     totalPackingCodes: 0,
-    totalProducts: 0,
     logisticCompanies: []
   });
 
@@ -143,55 +144,57 @@ const PackingCodeDetailList = () => {
           });
           setPackingData([]);
           setSummary({
+            totalQuantity: 0,
+            totalProducts: 0,
             totalBoxes: 0,
             totalPackingCodes: 0,
-            totalProducts: 0,
             logisticCompanies: []
           });
           return;
         }
 
-        // 포장코드별로 그룹화하여 박스수 정보 포함
+        // 제품별로 그룹화하여 총 수량과 포함된 포장코드 정보 포함
         const groupedData = filteredData.reduce((acc, item) => {
           console.log(' [PackingCodeDetailList] 처리 중인 아이템:', {
             packing_code: item.packing_code,
             box_count: item.box_count,
             product_name: item.product_name,
+            product_sku: item.product_sku,
             pl_date: item.pl_date
           });
 
-          const existingGroup = acc.find(group => group.packing_code === item.packing_code);
+          // 제품 키 생성 (제품명 + SKU)
+          const productKey = `${item.product_name}_${item.product_sku}`;
           
-          if (existingGroup) {
-            // 기존 그룹에 상품 추가 (중복 제거 없이 모든 상품 포함)
-            existingGroup.products.push({
+          const existingProduct = acc.find(product => product.product_key === productKey);
+          
+          if (existingProduct) {
+            // 기존 제품에 포장코드 정보 추가
+            const itemQuantity = (item.box_count || 0) * (item.packaging_count || 0) * (item.packaging_method || 0);
+            existingProduct.total_quantity += itemQuantity;
+            
+            // 포장코드 정보 추가 (중복 방지)
+            const existingPackingCode = existingProduct.packing_codes.find(pc => pc.packing_code === item.packing_code);
+            if (!existingPackingCode) {
+              existingProduct.packing_codes.push({
+                packing_code: item.packing_code,
+                box_count: item.box_count || 0,
+                calculated_quantity: itemQuantity
+              });
+            }
+          } else {
+            // 새로운 제품 그룹 생성
+            const itemQuantity = (item.box_count || 0) * (item.packaging_count || 0) * (item.packaging_method || 0);
+            acc.push({
+              product_key: productKey,
               product_name: item.product_name,
               product_sku: item.product_sku,
               product_image: item.product_image,
-              packaging_method: item.packaging_method,
-              packaging_count: item.packaging_count,
-              quantity_per_box: item.quantity_per_box,
-              created_at: item.created_at
-            });
-            // box_count는 기존 값 유지 (같은 포장코드의 box_count는 일치해야 함)
-            if (existingGroup.box_count !== item.box_count) {
-              console.warn(`⚠️ [PackingCodeDetailList] ${existingGroup.packing_code}의 box_count 불일치: 기존 ${existingGroup.box_count} vs 현재 ${item.box_count}`);
-            }
-          } else {
-            // 새로운 그룹 생성
-            acc.push({
-              packing_code: item.packing_code,
-              box_count: item.box_count || 0,
-              logistic_company: item.logistic_company,
-              pl_date: item.pl_date,
-              products: [{
-                product_name: item.product_name,
-                product_sku: item.product_sku,
-                product_image: item.product_image,
-                packaging_method: item.packaging_method,
-                packaging_count: item.packaging_count,
-                quantity_per_box: item.quantity_per_box,
-                created_at: item.created_at
+              total_quantity: itemQuantity,
+              packing_codes: [{
+                packing_code: item.packing_code,
+                box_count: item.box_count || 0,
+                calculated_quantity: itemQuantity
               }]
             });
           }
@@ -199,45 +202,49 @@ const PackingCodeDetailList = () => {
           return acc;
         }, []);
         
-        // 포장코드 순으로 정렬
-        groupedData.sort((a, b) => a.packing_code.localeCompare(b.packing_code));
+        // 제품명 순으로 정렬
+        groupedData.sort((a, b) => a.product_name.localeCompare(b.product_name));
         
         console.log(' [PackingCodeDetailList] 그룹화된 데이터:', {
           groupCount: groupedData.length,
           groups: groupedData.map(group => ({
-            packing_code: group.packing_code,
-            box_count: group.box_count,
-            product_count: group.products.length,
-            logistic_company: group.logistic_company
+            product_key: group.product_key,
+            product_name: group.product_name,
+            total_quantity: group.total_quantity,
+            packing_codes_count: group.packing_codes.length
           }))
         });
         
         setPackingData(groupedData);
         
-        // 요약 정보 계산
-        // 각 packing_code별로 box_count 하나씩만 합산 (중복 제거)
-        const totalBoxes = groupedData.reduce((sum, item) => {
-          const boxCount = item.box_count || 0;
-          console.log(` [PackingCodeDetailList] ${item.packing_code} 박스수: ${boxCount} (포장코드별 1회만 합산)`);
-          return sum + boxCount;
+        // 요약 정보 계산 (제품별 기준)
+        const totalQuantity = groupedData.reduce((sum, item) => sum + item.total_quantity, 0);
+        const totalProducts = groupedData.length;
+        
+        // 총 박스수: 해당 날짜의 패킹리스트에 포함된 고유한 포장코드의 박스수 합계
+        const uniquePackingCodes = Array.from(new Set(filteredData.map(item => item.packing_code)));
+        const totalBoxes = uniquePackingCodes.reduce((sum, packingCode) => {
+          const packingCodeData = filteredData.find(item => item.packing_code === packingCode);
+          return sum + (packingCodeData?.box_count || 0);
         }, 0);
         
-        // 모든 상품 개수 합산 (중복 포함)
-        const totalProducts = groupedData.reduce((sum, item) => sum + item.products.length, 0);
-        const logisticCompanies = Array.from(new Set(groupedData.map(item => item.logistic_company).filter(Boolean)));
+        const totalPackingCodes = uniquePackingCodes.length;
+        const logisticCompanies = Array.from(new Set(filteredData.map(item => item.logistic_company).filter(Boolean)));
         
         setSummary({
-          totalBoxes,
-          totalPackingCodes: groupedData.length,
+          totalQuantity,
           totalProducts,
+          totalBoxes,
+          totalPackingCodes,
           logisticCompanies
         });
         
-        console.log('✅ [PackingCodeDetailList] 포장코드별 데이터 로드 완료:', {
+        console.log('✅ [PackingCodeDetailList] 제품별 데이터 로드 완료:', {
           date: displayDate,
-          totalPackingCodes: groupedData.length,
+          totalProducts: groupedData.length,
+          totalQuantity,
           totalBoxes,
-          totalProducts,
+          totalPackingCodes,
           logisticCompanies
         });
       } else {
@@ -346,9 +353,9 @@ const PackingCodeDetailList = () => {
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-3xl font-bold text-gray-900 mb-2">
-                포장별 리스트
+                제품별 리스트
               </h1>
-              <p className="text-gray-600">날짜를 선택하여 포장코드별 리스트를 확인할 수 있습니다.</p>
+              <p className="text-gray-600">날짜를 선택하여 제품별 리스트를 확인할 수 있습니다.</p>
             </div>
             
             <button
@@ -369,8 +376,8 @@ const PackingCodeDetailList = () => {
             날짜를 선택해주세요
           </h2>
           <p className="text-yellow-700 mb-4">
-            MJPackingList에서 특정 날짜의 포장별리스트 아이콘을 클릭하여<br />
-            해당 날짜의 포장코드별 리스트를 확인할 수 있습니다.
+            MJPackingList에서 특정 날짜의 제품별리스트 아이콘을 클릭하여<br />
+            해당 날짜의 제품별 리스트를 확인할 수 있습니다.
           </p>
           <button
             onClick={handleGoBack}
@@ -413,9 +420,9 @@ const PackingCodeDetailList = () => {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-3xl font-bold text-gray-900 mb-2">
-              {displayDate} 포장별 리스트
+              {displayDate} 제품별 리스트
             </h1>
-            <p className="text-gray-600">해당 출고일자의 포장코드별 박스수 정보를 확인할 수 있습니다.</p>
+            <p className="text-gray-600">해당 출고일자의 제품별 총 수량과 포함된 포장코드 정보를 확인할 수 있습니다.</p>
           </div>
           
           {/* 액션 버튼들 */}
@@ -457,8 +464,8 @@ const PackingCodeDetailList = () => {
               <Package className="w-6 h-6 text-blue-600" />
             </div>
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600">총 포장코드</p>
-              <p className="text-2xl font-bold text-gray-900">{summary.totalPackingCodes}개</p>
+              <p className="text-sm font-medium text-gray-600">총 제품수</p>
+              <p className="text-2xl font-bold text-gray-900">{summary.totalProducts}개</p>
             </div>
           </div>
         </div>
@@ -467,6 +474,18 @@ const PackingCodeDetailList = () => {
           <div className="flex items-center">
             <div className="p-2 bg-green-100 rounded-lg">
               <Box className="w-6 h-6 text-green-600" />
+            </div>
+            <div className="ml-4">
+              <p className="text-sm font-medium text-gray-600">총 수량</p>
+              <p className="text-2xl font-bold text-gray-900">{summary.totalQuantity.toLocaleString()}개</p>
+            </div>
+          </div>
+        </div>
+        
+        <div className="bg-white p-6 rounded-lg shadow border border-gray-200">
+          <div className="flex items-center">
+            <div className="p-2 bg-orange-100 rounded-lg">
+              <Box className="w-6 h-6 text-orange-600" />
             </div>
             <div className="ml-4">
               <p className="text-sm font-medium text-gray-600">총 박스수</p>
@@ -478,19 +497,7 @@ const PackingCodeDetailList = () => {
         <div className="bg-white p-6 rounded-lg shadow border border-gray-200">
           <div className="flex items-center">
             <div className="p-2 bg-purple-100 rounded-lg">
-              <Package className="w-6 h-6 text-purple-600" />
-            </div>
-            <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600">총 상품수</p>
-              <p className="text-2xl font-bold text-gray-900">{summary.totalProducts}개</p>
-            </div>
-          </div>
-        </div>
-        
-        <div className="bg-white p-6 rounded-lg shadow border border-gray-200">
-          <div className="flex items-center">
-            <div className="p-2 bg-orange-100 rounded-lg">
-              <Truck className="w-6 h-6 text-orange-600" />
+              <Truck className="w-6 h-6 text-purple-600" />
             </div>
             <div className="ml-4">
               <p className="text-sm font-medium text-gray-600">물류회사</p>
@@ -509,10 +516,10 @@ const PackingCodeDetailList = () => {
             <Package className="w-16 h-16 mx-auto" />
           </div>
           <h2 className="text-xl font-semibold text-blue-800 mb-2">
-            포장코드 데이터가 없습니다
+            제품 데이터가 없습니다
           </h2>
           <p className="text-blue-700 mb-4">
-            <strong>{displayDate}</strong> 출고일자에 해당하는 포장코드 데이터가 없습니다.<br />
+            <strong>{displayDate}</strong> 출고일자에 해당하는 제품 데이터가 없습니다.<br />
             패킹리스트를 먼저 생성해주세요.
           </p>
           <div className="flex justify-center space-x-4">
@@ -534,7 +541,7 @@ const PackingCodeDetailList = () => {
         </div>
       )}
 
-      {/* 포장코드별 리스트 테이블 */}
+      {/* 제품별 리스트 테이블 */}
       {packingData.length > 0 && (
         <div className="bg-white shadow-md rounded-lg overflow-hidden">
           <div className="overflow-x-auto">
@@ -545,80 +552,83 @@ const PackingCodeDetailList = () => {
                     번호
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    포장코드
+                    제품명
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    박스수
+                    총 개수
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    물류회사
+                    포함 포장 코드
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    포함 상품
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    상세보기
+                    포함된 박스수
                   </th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {packingData.map((item, index) => (
-                  <tr key={item.packing_code} className="hover:bg-gray-50 transition-colors">
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                      {index + 1}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold text-gray-900">
-                      <div className="flex items-center">
-                        <span className="inline-flex items-center px-3 py-2 rounded-lg bg-blue-50 text-blue-700 border border-blue-200 font-medium">
-                          <Package className="w-4 h-4 mr-2" />
-                          {item.packing_code}
-                        </span>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      <div className="flex items-center">
-                        <Box className="w-4 h-4 mr-2 text-gray-500" />
-                        <span className="font-semibold text-lg text-gray-700">
-                          {item.box_count.toLocaleString()} 박스
-                        </span>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      <div className="flex items-center">
-                        {item.logistic_company ? (
-                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-700">
-                            <Truck className="w-3 h-3 mr-1" />
-                            {item.logistic_company}
-                          </span>
-                        ) : (
-                          <span className="text-gray-400 text-xs">미지정</span>
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 text-sm text-gray-900">
-                      <div className="space-y-1 max-w-md">
-                        {item.products.map((product, productIndex) => (
-                          <div key={productIndex} className="flex items-center">
-                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-700">
-                              {product.product_name}
+                {packingData.map((item, index) => {
+                  // 해당 제품이 포함된 총 박스수 계산
+                  const totalBoxes = item.packing_codes.reduce((sum, pc) => sum + pc.box_count, 0);
+                  
+                  return (
+                    <tr key={item.product_key} className="hover:bg-gray-50 transition-colors">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                        {index + 1}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold text-gray-900">
+                        <div className="flex items-center">
+                          {item.product_image ? (
+                            <img 
+                              src={item.product_image} 
+                              alt={item.product_name}
+                              className="w-8 h-8 rounded-lg object-cover mr-3"
+                            />
+                          ) : (
+                            <div className="w-8 h-8 rounded-lg bg-gray-200 flex items-center justify-center mr-3">
+                              <Package className="w-4 h-4 text-gray-500" />
+                            </div>
+                          )}
+                          <div>
+                            <span className="font-medium text-gray-900">
+                              {item.product_name}
                             </span>
+                            <div className="text-xs text-gray-500 mt-1">
+                              SKU: {item.product_sku}
+                            </div>
                           </div>
-                        ))}
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      <div className="flex justify-center">
-                        <button
-                          onClick={() => handlePackingCodeDetail(item.packing_code)}
-                          className="inline-flex items-center justify-center w-8 h-8 bg-blue-100 text-blue-600 rounded-lg hover:bg-blue-200 transition-colors"
-                          title={`${item.packing_code} 포장코드 상세보기`}
-                        >
-                          <Eye className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        <div className="flex items-center">
+                          <Box className="w-4 h-4 mr-2 text-green-500" />
+                          <span className="font-bold text-lg text-green-700">
+                            {item.total_quantity.toLocaleString()}개
+                          </span>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 text-sm text-gray-900">
+                        <div className="space-y-1 max-w-md">
+                          {item.packing_codes.map((packingCode, pcIndex) => (
+                            <div key={pcIndex} className="flex items-center">
+                              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700">
+                                <Package className="w-3 h-3 mr-1" />
+                                {packingCode.packing_code}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        <div className="flex items-center">
+                          <Box className="w-4 h-4 mr-2 text-orange-500" />
+                          <span className="font-bold text-lg text-orange-700">
+                            {totalBoxes.toLocaleString()}박스
+                          </span>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

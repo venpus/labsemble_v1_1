@@ -421,7 +421,7 @@ const MJPackingList = () => {
                   물류비 상세
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  포장별리스트
+                  상품 개수
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   상세보기
@@ -459,14 +459,37 @@ const MJPackingList = () => {
                       </div>
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-900">
-                      <div className="space-y-1 max-w-md">
-                        {item.product_names.map((productName, productIndex) => (
-                          <div key={productIndex} className="flex items-center">
-                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-700">
-                              {productName}
-                            </span>
-                          </div>
-                        ))}
+                      <div className="max-w-md">
+                        {(() => {
+                          // 상품명별 개수 계산
+                          const productCounts = {};
+                          item.product_names.forEach(productName => {
+                            productCounts[productName] = (productCounts[productName] || 0) + 1;
+                          });
+                          
+                          // 가장 많은 개수를 가진 상품명 찾기
+                          const sortedProducts = Object.entries(productCounts)
+                            .sort(([,a], [,b]) => b - a);
+                          
+                          const [mainProduct, mainCount] = sortedProducts[0];
+                          const otherProductsCount = sortedProducts.length - 1;
+                          
+                          if (otherProductsCount === 0) {
+                            // 상품이 1종류만 있는 경우
+                            return (
+                              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-700">
+                                {mainProduct}
+                              </span>
+                            );
+                          } else {
+                            // 여러 종류의 상품이 있는 경우
+                            return (
+                              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-700">
+                                {mainProduct} 외 {otherProductsCount}종
+                              </span>
+                            );
+                          }
+                        })()}
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
