@@ -426,8 +426,14 @@ router.post('/calculate-project-export-quantity', auth, async (req, res) => {
     const currentExportQuantity = currentProject.export_quantity || 0;
 
     // mj_packing_list에서 같은 project_id를 가진 데이터들의 박스수 × 포장수 × 소포장수 합산 계산
+    // 각 물품별로 개별 계산하여 정확한 export_quantity 산출
     const [packingListData] = await connection.execute(`
       SELECT 
+        id,
+        packing_code,
+        product_name,
+        product_sku,
+        client_product_id,
         box_count,
         packaging_count,
         packaging_method,
@@ -437,21 +443,37 @@ router.post('/calculate-project-export-quantity', auth, async (req, res) => {
         AND box_count > 0 
         AND packaging_count > 0 
         AND packaging_method > 0
+      ORDER BY packing_code, product_name, id
     `, [projectId]);
 
-    // 문자열을 숫자로 변환하여 계산
+    // 문자열을 숫자로 변환하여 계산하고 각 물품별로 개별 처리
     const processedPackingListData = packingListData.map(item => ({
+      id: item.id,
+      packing_code: item.packing_code,
+      product_name: item.product_name,
+      product_sku: item.product_sku,
+      client_product_id: item.client_product_id,
       box_count: parseInt(item.box_count) || 0,
       packaging_count: parseInt(item.packaging_count) || 0,
       packaging_method: parseInt(item.packaging_method) || 0,
       calculated_export_quantity: parseInt(item.calculated_export_quantity) || 0
     }));
 
-    // 패킹리스트 데이터 처리
-
-    // 총 export_quantity 계산 (변환된 숫자 데이터 사용)
+    // 각 물품별로 개별 계산하여 총 export_quantity 산출
+    // 하나의 포장코드에 여러 물품이 있어도 각각 개별적으로 계산
     const totalExportQuantity = processedPackingListData.reduce((sum, item) => {
-      return sum + (item.calculated_export_quantity || 0);
+      const itemQuantity = item.calculated_export_quantity || 0;
+      console.log(`📦 [export_quantity 계산] 물품별 개별 계산:`, {
+        packingCode: item.packing_code,
+        productName: item.product_name,
+        clientProductId: item.client_product_id,
+        boxCount: item.box_count,
+        packagingCount: item.packaging_count,
+        packagingMethod: item.packaging_method,
+        calculatedQuantity: itemQuantity,
+        runningTotal: sum + itemQuantity
+      });
+      return sum + itemQuantity;
     }, 0);
 
     // 총 export_quantity 계산
@@ -503,15 +525,28 @@ router.post('/calculate-project-export-quantity', auth, async (req, res) => {
 
       // 프로젝트 export_quantity 업데이트 완료
 
+      console.log(`✅ [export_quantity 계산 완료] 프로젝트 ${projectId}의 총 export_quantity:`, {
+        oldExportQuantity: currentExportQuantity,
+        newExportQuantity: totalExportQuantity,
+        remainQuantity: currentProject.entry_quantity - totalExportQuantity,
+        totalItems: processedPackingListData.length,
+        entryQuantity: currentProject.entry_quantity
+      });
+
       res.json({
         success: true,
-        message: '프로젝트 출고 수량이 mj_packing_list 기반으로 계산되어 업데이트되었습니다.',
+        message: '프로젝트 출고 수량이 mj_packing_list 기반으로 각 물품별 개별 계산되어 업데이트되었습니다.',
         projectId,
         oldExportQuantity: currentExportQuantity,
         newExportQuantity: totalExportQuantity,
         remainQuantity: currentProject.entry_quantity - totalExportQuantity,
         packingListCount: processedPackingListData.length,
         calculationDetails: processedPackingListData.map(item => ({
+          id: item.id,
+          packingCode: item.packing_code,
+          productName: item.product_name,
+          productSku: item.product_sku,
+          clientProductId: item.client_product_id,
           boxCount: item.box_count,
           packagingCount: item.packaging_count,
           packagingMethod: item.packaging_method,
