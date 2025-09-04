@@ -77,22 +77,22 @@ router.post('/auto-save', auth, async (req, res) => {
     if (client_product_id) {
       const [rows] = await connection.execute(
         `SELECT id, product_name FROM mj_packing_list 
-         WHERE client_product_id = ?`,
-        [client_product_id]
+         WHERE client_product_id = ? AND pl_date = ?`,
+        [client_product_id, pl_date]
       );
       existingRows = rows;
       
-      // client_product_id로 정확한 상품 검색
+      // client_product_id와 pl_date 조합으로 정확한 상품 검색
     } else {
-      // client_product_id가 없으면 포장코드로 검색 (하위 호환성)
+      // client_product_id가 없으면 packing_code와 pl_date 조합으로 검색
       const [rows] = await connection.execute(
         `SELECT id, product_name FROM mj_packing_list 
-         WHERE packing_code = ?`,
-        [packing_code]
+         WHERE packing_code = ? AND pl_date = ?`,
+        [packing_code, pl_date]
       );
       existingRows = rows;
       
-      // 포장코드로 검색 (하위 호환성)
+      // packing_code와 pl_date 조합으로 검색
     }
 
     let result;
@@ -193,18 +193,32 @@ router.get('/by-packing-code/:packingCode', auth, async (req, res) => {
   
   try {
     const { packingCode } = req.params;
+    const { pl_date } = req.query; // pl_date 쿼리 파라미터 추가
     
-    const [rows] = await connection.execute(
-      `SELECT * FROM mj_packing_list 
-       WHERE packing_code = ? 
-       ORDER BY created_at DESC`,
-      [packingCode]
-    );
+    let query, params;
+    
+    if (pl_date) {
+      // pl_date가 제공된 경우 packing_code와 pl_date 조합으로 검색
+      query = `SELECT * FROM mj_packing_list 
+               WHERE packing_code = ? AND pl_date = ? 
+               ORDER BY created_at DESC`;
+      params = [packingCode, pl_date];
+    } else {
+      // pl_date가 없는 경우 packing_code만으로 검색 (하위 호환성)
+      query = `SELECT * FROM mj_packing_list 
+               WHERE packing_code = ? 
+               ORDER BY created_at DESC`;
+      params = [packingCode];
+    }
+    
+    const [rows] = await connection.execute(query, params);
     
     res.json({
       success: true,
       data: rows,
-      total: rows.length
+      total: rows.length,
+      packingCode,
+      plDate: pl_date || null
     });
     
   } catch (error) {
@@ -285,35 +299,45 @@ router.delete('/packing-code/:packingCode', auth, async (req, res) => {
   
   try {
     const { packingCode } = req.params;
-    // 포장코드별 전체 삭제
+    const { pl_date } = req.query; // pl_date 쿼리 파라미터 추가
+    
+    let checkQuery, deleteQuery, params;
+    
+    if (pl_date) {
+      // pl_date가 제공된 경우 packing_code와 pl_date 조합으로 삭제
+      checkQuery = `SELECT COUNT(*) as count FROM mj_packing_list WHERE packing_code = ? AND pl_date = ?`;
+      deleteQuery = `DELETE FROM mj_packing_list WHERE packing_code = ? AND pl_date = ?`;
+      params = [packingCode, pl_date];
+    } else {
+      // pl_date가 없는 경우 packing_code만으로 삭제 (하위 호환성)
+      checkQuery = `SELECT COUNT(*) as count FROM mj_packing_list WHERE packing_code = ?`;
+      deleteQuery = `DELETE FROM mj_packing_list WHERE packing_code = ?`;
+      params = [packingCode];
+    }
     
     // 삭제 전 데이터 확인
-    const [checkRows] = await connection.execute(
-      `SELECT COUNT(*) as count FROM mj_packing_list WHERE packing_code = ?`,
-      [packingCode]
-    );
+    const [checkRows] = await connection.execute(checkQuery, params);
     
     if (checkRows[0].count === 0) {
       connection.release();
       return res.status(404).json({ 
         success: false, 
-        message: '삭제할 포장코드의 패킹리스트를 찾을 수 없습니다.' 
+        message: `삭제할 포장코드 ${packingCode}${pl_date ? ` (날짜: ${pl_date})` : ''}의 패킹리스트를 찾을 수 없습니다.` 
       });
     }
     
     // 해당 포장코드의 모든 데이터 삭제
-    const [deleteResult] = await connection.execute(
-      `DELETE FROM mj_packing_list WHERE packing_code = ?`,
-      [packingCode]
-    );
+    const [deleteResult] = await connection.execute(deleteQuery, params);
     
     connection.release();
     
     // 포장코드별 전체 삭제 성공
     res.json({ 
       success: true, 
-      message: `포장코드 ${packingCode}의 모든 패킹리스트가 삭제되었습니다.`,
-      deletedCount: deleteResult.affectedRows
+      message: `포장코드 ${packingCode}${pl_date ? ` (날짜: ${pl_date})` : ''}의 모든 패킹리스트가 삭제되었습니다.`,
+      deletedCount: deleteResult.affectedRows,
+      packingCode,
+      plDate: pl_date || null
     });
     
   } catch (error) {

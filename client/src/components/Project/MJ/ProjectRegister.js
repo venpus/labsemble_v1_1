@@ -169,9 +169,9 @@ const ProjectRegister = () => {
         throw new Error(data.error || '프로젝트 등록 중 오류가 발생했습니다.');
       }
       
-      // 성공 시 MJ 프로젝트 목록으로 이동
+      // 성공 시 등록한 프로젝트의 상세 페이지로 이동
       alert('프로젝트가 성공적으로 등록되었습니다!');
-      navigate('/dashboard/mj-projects');
+      navigate(`/dashboard/mj-projects/${data.projectId}`);
       
     } catch (error) {
       console.error('프로젝트 등록 실패:', error);

@@ -86,7 +86,7 @@ router.put('/update', auth, async (req, res) => {
               pl_date,
               barcode_number || null,
               tracking_number || null,
-              logistic_fee || 0,
+              logistic_fee || 205, // 기본값 205로 설정
               is_paid || false,
               description || null,
               packing_code,
@@ -118,7 +118,7 @@ router.put('/update', auth, async (req, res) => {
               box_no,
               barcode_number || null,
               tracking_number || null,
-              logistic_fee || 0,
+              logistic_fee || 205, // 기본값 205로 설정
               is_paid || false,
               description || null
             ]);

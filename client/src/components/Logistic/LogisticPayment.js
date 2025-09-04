@@ -26,7 +26,6 @@ const LogisticPayment = () => {
 
   // 저장 상태
   const [saving, setSaving] = useState(false);
-  const [hasChanges, setHasChanges] = useState(false);
 
   // 데이터 변경 감지
   const handleDataChange = (index, field, value) => {
@@ -42,7 +41,6 @@ const LogisticPayment = () => {
     }
     
     setPaymentData(updatedData);
-    setHasChanges(true);
     
     // 요약 정보 업데이트
     if (field === 'shipping_cost' || field === 'payment_status') {
@@ -124,7 +122,6 @@ const LogisticPayment = () => {
           : `물류 결제 정보가 성공적으로 저장되었습니다. (${result.data.saved}개 새로 저장, ${result.data.updated}개 업데이트)`;
         
         toast.success(message);
-        setHasChanges(false);
         
         // 저장된 데이터로 새로고침하여 DB에서 최신 데이터 가져오기
         await fetchPaymentData();
@@ -145,7 +142,6 @@ const LogisticPayment = () => {
   const handleRefresh = async () => {
     if (selectedDate) {
       await fetchPaymentData();
-      setHasChanges(false);
       toast.success('데이터가 새로고침되었습니다.');
     }
   };
@@ -259,7 +255,7 @@ const LogisticPayment = () => {
               total_repeats: actualBoxCount,
               barcode_number: savedItem ? savedItem.barcode_number : '',
               tracking_number: savedItem ? savedItem.tracking_number : '',
-              shipping_cost: savedItem ? parseFloat(savedItem.logistic_fee) || 0 : 0, // 숫자로 변환
+              shipping_cost: savedItem ? parseFloat(savedItem.logistic_fee) || 205 : 205, // 기본값 205로 설정
               payment_status: savedItem ? (savedItem.is_paid ? 'paid' : 'unpaid') : 'unpaid',
               description: savedItem ? savedItem.description : ''
             });
@@ -421,7 +417,7 @@ const LogisticPayment = () => {
         <div className="flex space-x-3">
           <button
             onClick={handleSave}
-            disabled={!hasChanges || !selectedDate}
+            disabled={!selectedDate || saving}
             className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <Save className="w-4 h-4" />
@@ -461,7 +457,7 @@ const LogisticPayment = () => {
             </div>
             <div className="ml-4">
               <p className="text-sm font-medium text-gray-600">총 배송비</p>
-              <p className="text-2xl font-bold text-gray-900">{summary.totalShippingCost.toLocaleString()}원</p>
+              <p className="text-2xl font-bold text-gray-900">{summary.totalShippingCost.toLocaleString()} CNY</p>
             </div>
           </div>
         </div>
@@ -505,7 +501,7 @@ const LogisticPayment = () => {
               <div className="col-span-1">물류회사</div>
               <div className="col-span-1">바코드넘버</div>
               <div className="col-span-1">송장번호</div>
-              <div className="col-span-1">배송비</div>
+              <div className="col-span-1">배송비 (CNY)</div>
               <div className="col-span-1">결제여부</div>
               <div className="col-span-1">설명</div>
             </div>
@@ -604,14 +600,19 @@ const LogisticPayment = () => {
                   
                   {/* 배송비 */}
                   <div className="col-span-1">
-                    <input
-                      type="number"
-                      step="0.01"
-                      value={item.shipping_cost || ''}
-                      onChange={(e) => handleDataChange(index, 'shipping_cost', parseFloat(e.target.value) || 0)}
-                      className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      placeholder="0.00"
-                    />
+                    <div className="flex items-center">
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={item.shipping_cost || ''}
+                        onChange={(e) => handleDataChange(index, 'shipping_cost', parseFloat(e.target.value) || 0)}
+                        className="w-full px-2 py-1 text-sm border border-gray-300 rounded-l focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        placeholder="205.00"
+                      />
+                      <span className="px-2 py-1 text-sm text-gray-600 bg-gray-100 border border-l-0 border-gray-300 rounded-r">
+                        CNY
+                      </span>
+                    </div>
                   </div>
                   
                   {/* 결제여부 */}

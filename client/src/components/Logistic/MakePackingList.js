@@ -581,11 +581,16 @@ const MakePackingList = () => {
       return;
     }
     
-    // 중복 포장코드 확인
-    const isDuplicate = packingData.some(item => item.packingCode === newPackingCodeInput.trim());
+    // 중복 포장코드 확인 (pl_date와 packing_code 조합으로 검사)
+    const isDuplicate = packingData.some(item => 
+      item.packingCode === newPackingCodeInput.trim() && item.plDate === plDate
+    );
     if (isDuplicate) {
-      console.log('⚠️ [addPackingCode] 중복 포장코드 감지:', newPackingCodeInput.trim());
-      toast.error('이미 존재하는 포장코드입니다.');
+      console.log('⚠️ [addPackingCode] 중복 포장코드 감지 (같은 날짜):', {
+        packingCode: newPackingCodeInput.trim(),
+        plDate: plDate
+      });
+      toast.error('같은 날짜에 이미 존재하는 포장코드입니다.');
       return;
     }
     
