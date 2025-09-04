@@ -21,8 +21,13 @@ const CalendarGrid = ({
       
       {/* 캘린더 그리드 */}
       {calendarDays.map((day, index) => {
+        // 로컬 날짜 형식으로 변환 (YYYY-MM-DD)
+        const localDateString = day.getFullYear() + '-' + 
+          String(day.getMonth() + 1).padStart(2, '0') + '-' + 
+          String(day.getDate()).padStart(2, '0');
+        
         const dayEvents = events.filter(event => 
-          event.date === day.toISOString().split('T')[0]
+          event.date === localDateString
         );
         
         return (

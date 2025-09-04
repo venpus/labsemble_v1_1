@@ -7,6 +7,8 @@ package-lock.json
 yarn.lock
 #MJ -Mobile APP
 MJ_APP/
+Mobile/
+Mobile2/
 
 # Production builds
 client/build/

@@ -39,27 +39,39 @@ const TabNavigation = ({ activeTab, onTabChange }) => {
           <span className="text-gray-600 font-medium">📅 카드 의미:</span>
           
           {/* 주문달력 범례 */}
-          <div className="flex items-center space-x-2">
-            <div className="w-3 h-3 bg-gradient-to-r from-yellow-100 to-amber-100 border border-yellow-300 rounded"></div>
-            <span className="text-gray-600">📋 발주일</span>
-          </div>
-          <div className="flex items-center space-x-2">
-            <div className="w-3 h-3 bg-gradient-to-r from-green-100 to-emerald-100 border border-green-300 rounded"></div>
-            <span className="text-gray-600">📦 납기예정</span>
-          </div>
-          <div className="flex items-center space-x-2">
-            <div className="w-3 h-3 bg-gradient-to-r from-green-50 to-emerald-50 border border-green-200 rounded"></div>
-            <span className="text-gray-600">✅ 완료</span>
-          </div>
+          {activeTab === 'order' && (
+            <>
+              <div className="flex items-center space-x-2">
+                <div className="w-3 h-3 bg-gradient-to-r from-yellow-100 to-amber-100 border border-yellow-300 rounded"></div>
+                <span className="text-gray-600">📋 발주일</span>
+              </div>
+              <div className="flex items-center space-x-2">
+                <div className="w-3 h-3 bg-gradient-to-r from-blue-100 to-indigo-100 border border-blue-300 rounded"></div>
+                <span className="text-gray-600">📦 입고예정</span>
+              </div>
+              <div className="flex items-center space-x-2">
+                <div className="w-3 h-3 bg-gradient-to-r from-green-50 to-emerald-50 border border-green-200 rounded"></div>
+                <span className="text-gray-600">✅ 발주완료</span>
+              </div>
+            </>
+          )}
+          
+          {/* 물류달력 범례 (패킹리스트) */}
+          {activeTab === 'logistics' && (
+            <>
+              <div className="flex items-center space-x-2">
+                <div className="w-3 h-3 bg-gradient-to-r from-purple-100 to-violet-100 border border-purple-300 rounded"></div>
+                <span className="text-gray-600">📦 패킹리스트</span>
+              </div>
+              <div className="flex items-center space-x-2">
+                <div className="w-3 h-3 bg-gradient-to-r from-purple-50 to-violet-50 border border-purple-200 rounded"></div>
+                <span className="text-gray-600">💰 결제완료</span>
+              </div>
+            </>
+          )}
           
           {/* 구분선 */}
           <div className="w-px h-4 bg-gray-300"></div>
-          
-          {/* 물류달력 범례 */}
-          <div className="flex items-center space-x-2">
-            <div className="w-3 h-3 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded"></div>
-            <span className="text-gray-600">🚚 출고완료</span>
-          </div>
           
           {/* 팁 */}
           <div className="text-gray-500">

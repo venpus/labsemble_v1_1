@@ -667,4 +667,216 @@ router.delete('/:id', auth, async (req, res) => {
   }
 });
 
+// 월별 패킹리스트 조회 (캘린더용)
+router.get('/by-month/:year/:month', auth, async (req, res) => {
+  const connection = await pool.getConnection();
+  
+  try {
+    const { year, month } = req.params;
+    
+    // 해당 월의 패킹리스트 조회
+    const [rows] = await connection.execute(
+      `SELECT 
+        id,
+        packing_code,
+        product_name,
+        box_count,
+        logistic_company,
+        pl_date,
+        created_at
+      FROM mj_packing_list 
+      WHERE YEAR(pl_date) = ? AND MONTH(pl_date) = ?
+      ORDER BY pl_date ASC, created_at ASC`,
+      [year, month]
+    );
+    
+    console.log('📅 [packing-list] 월별 조회 결과:', {
+      year, month, count: rows.length
+    });
+    
+    res.json({
+      success: true,
+      data: rows,
+      total: rows.length,
+      year: parseInt(year),
+      month: parseInt(month)
+    });
+    
+  } catch (error) {
+    console.error('월별 패킹리스트 조회 오류:', error);
+    res.status(500).json({ 
+      error: '월별 패킹리스트 조회 중 오류가 발생했습니다.',
+      details: error.message 
+    });
+  } finally {
+    connection.release();
+  }
+});
+
+// 패킹리스트 달력용 데이터 조회 (Client 전용)
+router.get('/calendar/events', auth, async (req, res) => {
+  const connection = await pool.getConnection();
+  const startTime = Date.now();
+  
+  try {
+    
+    // 패킹리스트 데이터 조회 (pl_date가 있는 것만) - logistic_payment와 JOIN
+    const [packingLists] = await connection.execute(`
+      SELECT 
+        pl.id,
+        pl.pl_date,
+        pl.packing_code,
+        pl.product_name,
+        pl.box_count,
+        pl.packaging_count,
+        pl.packaging_method,
+        pl.quantity_per_box,
+        pl.logistic_company,
+        pl.created_at,
+        pl.updated_at,
+        p.project_name,
+        p.supplier_name,
+        p.target_price,
+        u.username as assignee,
+        lp.logistic_fee as shipping_cost,
+        lp.is_paid,
+        lp.tracking_number,
+        lp.box_no,
+        lp.description as payment_description
+      FROM mj_packing_list pl
+      LEFT JOIN mj_project p ON pl.project_id = p.id
+      LEFT JOIN users u ON p.user_id = u.id
+      LEFT JOIN logistic_payment lp ON pl.id = lp.mj_packing_list_id
+      WHERE pl.pl_date IS NOT NULL 
+        AND pl.pl_date != '' 
+        AND pl.pl_date != 'no-date'
+      ORDER BY pl.pl_date ASC, pl.packing_code ASC
+    `);
+
+
+    // 날짜별, 물류회사별로 그룹화하여 중복 제거
+    const groupedData = {};
+    
+    packingLists.forEach(packing => {
+      const key = `${packing.pl_date}_${packing.logistic_company || '미지정'}`;
+      
+      if (!groupedData[key]) {
+        groupedData[key] = {
+          date: packing.pl_date,
+          logisticCompany: packing.logistic_company || '미지정',
+          items: [],
+          totalQuantity: 0,
+          totalBoxCount: 0,
+          totalShippingCost: 0,
+          isPaid: false,
+          packingCodes: [],
+          projectNames: [],
+          trackingNumbers: [],
+          uniquePackingCodes: new Set() // 고유한 포장코드 추적용
+        };
+      }
+      
+      // 총 수량 계산 (박스수 × 포장수 × 소포장수)
+      const totalQuantity = (packing.box_count || 0) * (packing.packaging_count || 0) * (packing.packaging_method || 0);
+      
+      groupedData[key].items.push(packing);
+      groupedData[key].totalQuantity += totalQuantity;
+      groupedData[key].totalShippingCost += (packing.shipping_cost || 0);
+      groupedData[key].isPaid = groupedData[key].isPaid || (packing.is_paid === 1);
+      groupedData[key].projectNames.push(packing.product_name || packing.project_name);
+      if (packing.tracking_number) {
+        groupedData[key].trackingNumbers.push(packing.tracking_number);
+      }
+      
+      // 고유한 포장코드별로만 박스수 합산 (중복 제거)
+      if (!groupedData[key].uniquePackingCodes.has(packing.packing_code)) {
+        groupedData[key].uniquePackingCodes.add(packing.packing_code);
+        groupedData[key].packingCodes.push(packing.packing_code);
+        groupedData[key].totalBoxCount += (packing.box_count || 0);
+      }
+    });
+
+    // 달력 이벤트 형식으로 변환 (그룹화된 데이터)
+    const events = Object.values(groupedData).map((group, index) => {
+      const uniqueProjectNames = [...new Set(group.projectNames)];
+      const uniquePackingCodes = [...new Set(group.packingCodes)];
+      const uniqueTrackingNumbers = [...new Set(group.trackingNumbers)];
+      
+      // 패킹리스트 건수 = 고유한 포장코드 수 (MJPackingList와 동일한 로직)
+      const packingListCount = uniquePackingCodes.length;
+      
+      return {
+        id: `logistics_${group.date}_${group.logisticCompany.replace(/\s+/g, '_')}`,
+        title: `${group.logisticCompany} (${packingListCount}건)`,
+        date: group.date,
+        time: '09:00',
+        location: group.logisticCompany,
+        description: `포장코드: ${uniquePackingCodes.join(', ')}, 총수량: ${group.totalQuantity}개, 박스: ${group.totalBoxCount}개`,
+        assignee: '담당자 미지정',
+        productName: uniqueProjectNames.join(', '),
+        quantity: group.totalQuantity,
+        unit: '개',
+        createdAt: group.items[0].created_at,
+        updatedAt: group.items[0].updated_at,
+        
+        // 패킹리스트 전용 정보 (그룹화된 정보)
+        eventType: 'packing_list',
+        status: group.isPaid ? 'completed' : 'pending',
+        packingCode: uniquePackingCodes.join(', '),
+        boxCount: group.totalBoxCount,
+        packagingCount: packingListCount, // 고유한 포장코드 수 = 패킹리스트 건수
+        packagingMethod: group.items[0].packaging_method,
+        quantityPerBox: group.items[0].quantity_per_box,
+        logisticCompany: group.logisticCompany,
+        shippingCost: group.totalShippingCost,
+        isPaid: group.isPaid,
+        projectName: uniqueProjectNames.join(', '),
+        supplierName: group.items[0].supplier_name,
+        targetPrice: group.items[0].target_price,
+        
+        // 물류 결제 정보
+        trackingNumber: uniqueTrackingNumbers.join(', '),
+        boxNo: group.totalBoxCount, // 총 박스 수 (고유한 포장코드별 박스수 합계)
+        paymentDescription: group.items[0].payment_description,
+        
+        // 그룹화된 상세 정보
+        groupInfo: {
+          itemCount: packingListCount, // 패킹리스트 건수
+          totalItems: group.items.length, // 전체 아이템 수 (중복 포함)
+          packingCodes: uniquePackingCodes,
+          projectNames: uniqueProjectNames,
+          trackingNumbers: uniqueTrackingNumbers
+        }
+      };
+    });
+
+    const processingTime = Date.now() - startTime;
+
+    res.json({
+      success: true,
+      data: events,
+      message: '패킹리스트 달력 데이터 조회 성공',
+      processingTime: processingTime,
+      summary: {
+        totalEvents: events.length,
+        paidEvents: events.filter(e => e.isPaid).length,
+        unpaidEvents: events.filter(e => !e.isPaid).length
+      }
+    });
+
+  } catch (error) {
+    const processingTime = Date.now() - startTime;
+    console.error(`📦 [PackingList] 달력 데이터 조회 오류 (${processingTime}ms):`, error);
+    
+    res.status(500).json({
+      success: false,
+      error: '패킹리스트 달력 데이터 조회 중 오류가 발생했습니다.',
+      details: error.message,
+      processingTime: processingTime
+    });
+  } finally {
+    connection.release();
+  }
+});
+
 module.exports = router; 

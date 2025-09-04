@@ -213,15 +213,16 @@ router.get('/summary-by-date/:date', auth, async (req, res) => {
 
     const [records] = await connection.execute(`
       SELECT 
-        packing_code,
-        SUM(CAST(logistic_fee AS DECIMAL(10,2))) as total_logistic_fee,
+        lp.packing_code,
+        lp.logistic_company,
+        SUM(CAST(lp.logistic_fee AS DECIMAL(10,2))) as total_logistic_fee,
         COUNT(*) as total_records,
-        SUM(CASE WHEN is_paid = 1 THEN 1 ELSE 0 END) as paid_count,
-        SUM(CASE WHEN is_paid = 0 THEN 1 ELSE 0 END) as unpaid_count
+        SUM(CASE WHEN lp.is_paid = 1 THEN 1 ELSE 0 END) as paid_count,
+        SUM(CASE WHEN lp.is_paid = 0 THEN 1 ELSE 0 END) as unpaid_count
       FROM logistic_payment lp
       WHERE lp.pl_date = ?
-      GROUP BY packing_code
-      ORDER BY packing_code
+      GROUP BY lp.packing_code, lp.logistic_company
+      ORDER BY lp.packing_code, lp.logistic_company
     `, [date]);
 
     // 물류비 합계 조회 완료

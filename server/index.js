@@ -34,6 +34,9 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 const NODE_ENV = process.env.NODE_ENV || 'development';
 
+// 서버 타임아웃 설정 (30초)
+const serverTimeout = 30000;
+
 // 환경별 설정
 const isProduction = NODE_ENV === 'production';
 console.log(`🌍 서버 환경: ${NODE_ENV} (${isProduction ? '상용' : '개발'})`);
@@ -53,6 +56,12 @@ const corsOptions = {
       'http://labsemble.com',   // HTTP도 허용 (상용서버 호환성)
       'http://www.labsemble.com'
     ];
+    
+    // 동적 IP 주소 지원 (환경변수에서 설정)
+    if (process.env.SERVER_HOST && process.env.SERVER_HOST !== 'localhost') {
+      allowedOrigins.push(`http://${process.env.SERVER_HOST}:3000`);
+      allowedOrigins.push(`http://${process.env.SERVER_HOST}:5000`);
+    }
     
     // origin이 없는 경우 (Postman, curl 등) 허용
     if (!origin || allowedOrigins.includes(origin)) {
@@ -126,6 +135,7 @@ app.use('/api/warehouse', require('./routes/warehouse'));
 app.use('/api/packing-list', require('./routes/packing-list'));
 app.use('/api/finance', require('./routes/finance'));
 app.use('/api/logistic-payment', require('./routes/logistic-payment'));
+app.use('/api/mobile/finance', require('./routes/mobile-finance'));
 // app.use('/api/products', require('./routes/products'));
 // app.use('/api/orders', require('./routes/orders'));
 // app.use('/api/quotations', require('./routes/quotations'));
@@ -416,14 +426,18 @@ const startServer = async () => {
     console.log('✅ 데이터베이스 초기화 완료!');
     
     // 서버 시작 (모든 IP에서 접근 가능하도록 설정)
-    app.listen(PORT, '0.0.0.0', () => {
+    const server = app.listen(PORT, '0.0.0.0', () => {
       console.log(`🚀 Manufacturing API 서버가 포트 ${PORT}에서 실행 중입니다.`);
       console.log(`🌍 서버 환경: ${NODE_ENV} (${isProduction ? '상용' : '개발'})`);
       console.log(`🌍 Timezone: ${process.env.TZ}`);
       console.log(`📊 마이그레이션 상태 확인: http://localhost:${PORT}/api/migration/status`);
-      console.log(`📱 모바일 앱 접근: http://172.16.21.172:${PORT}/api/mj-project`);
+      console.log(`📱 모바일 앱 접근: http://${process.env.SERVER_HOST || 'localhost'}:${PORT}/api/mj-project`);
+      console.log(`⏱️  서버 타임아웃: ${serverTimeout}ms`);
       console.log('💡 서버가 완전히 시작되기까지 몇 초 정도 소요될 수 있습니다.');
     });
+
+    // 서버 타임아웃 설정
+    server.timeout = serverTimeout;
   } catch (error) {
     console.error('❌ 서버 시작 실패:', error);
     process.exit(1);
