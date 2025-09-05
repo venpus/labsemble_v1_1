@@ -146,14 +146,12 @@ const PackingListDetailPrints = ({
             .product-image-placeholder {
               width: 40px;
               height: 40px;
-              background-color: #f5f5f5;
-              border: 1px solid #ddd;
+              background-color: transparent;
+              border: none;
               border-radius: 4px;
               display: flex;
               align-items: center;
               justify-content: center;
-              font-size: 10px;
-              color: #999;
             }
             .packing-code {
               display: inline-block;
@@ -275,14 +273,12 @@ const PackingListDetailPrints = ({
               .product-image-placeholder {
                 width: 40px !important;
                 height: 40px !important;
-                background-color: #f5f5f5 !important;
-                border: 1px solid #ddd !important;
+                background-color: transparent !important;
+                border: none !important;
                 border-radius: 4px !important;
                 display: flex !important;
                 align-items: center !important;
                 justify-content: center !important;
-                font-size: 10px !important;
-                color: #999 !important;
               }
             }
           </style>
@@ -447,26 +443,24 @@ const PackingListDetailPrints = ({
                                   </td>
                                                           <td className="image-col">
                           {item.product_image ? (
-                            <>
-                              <img
-                                src={item.product_image}
-                                alt={item.product_name}
-                                className="product-image"
-                                onError={(e) => {
-                                  e.target.style.display = 'none';
-                                  e.target.nextSibling.style.display = 'flex';
-                                }}
-                              />
-                              <div 
-                                className="product-image-placeholder"
-                                style={{ display: 'none' }}
-                              >
-                                이미지 없음
-                              </div>
-                            </>
+                            <img
+                              src={item.product_image}
+                              alt={item.product_name}
+                              className="product-image"
+                              onError={(e) => {
+                                e.target.style.display = 'none';
+                              }}
+                            />
                           ) : (
-                            <div className="product-image-placeholder">
-                              이미지 없음
+                            <div 
+                              className="product-image-placeholder"
+                              style={{ 
+                                width: '40px', 
+                                height: '40px', 
+                                backgroundColor: 'transparent',
+                                border: 'none'
+                              }}
+                            >
                             </div>
                           )}
                         </td>
