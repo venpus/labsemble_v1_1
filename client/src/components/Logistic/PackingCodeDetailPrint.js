@@ -340,22 +340,28 @@ const PackingCodeDetailPrint = ({
                       <div className="product-group-header" style={{ display: 'flex', alignItems: 'center' }}>
                         <div style={{ marginRight: '15px' }}>
                           {item.product_image ? (
-                            <img
-                              src={item.product_image}
-                              alt={item.product_name}
-                              className="product-image"
-                              onError={(e) => {
-                                e.target.style.display = 'none';
-                                e.target.nextSibling.style.display = 'flex';
-                              }}
-                            />
-                          ) : null}
-                          <div 
-                            className="product-image-placeholder"
-                            style={{ display: item.product_image ? 'none' : 'flex' }}
-                          >
-                            이미지 없음
-                          </div>
+                            <>
+                              <img
+                                src={item.product_image}
+                                alt={item.product_name}
+                                className="product-image"
+                                onError={(e) => {
+                                  e.target.style.display = 'none';
+                                  e.target.nextSibling.style.display = 'flex';
+                                }}
+                              />
+                              <div 
+                                className="product-image-placeholder"
+                                style={{ display: 'none' }}
+                              >
+                                이미지 없음
+                              </div>
+                            </>
+                          ) : (
+                            <div className="product-image-placeholder">
+                              이미지 없음
+                            </div>
+                          )}
                         </div>
                         <div>
                           <div style={{ fontSize: '16px', fontWeight: 'bold' }}>
