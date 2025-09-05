@@ -10,9 +10,11 @@ import {
   Shield,
   Calendar,
   Package,
-  DollarSign
+  DollarSign,
+  Info
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
+import { versionInfo } from '../../config/version';
 
 const Sidebar = ({ selectedMenu, setSelectedMenu }) => {
   const { user } = useAuth();
@@ -279,6 +281,24 @@ const Sidebar = ({ selectedMenu, setSelectedMenu }) => {
               <p className="text-xs text-red-500 mt-1 font-medium">관리자 모드</p>
             )}
           </div>
+          
+          {/* 버전 정보 (관리자만 표시) */}
+          {isAdmin && (
+            <div className="mt-4 p-3 bg-gray-50 rounded-lg border border-gray-200">
+              <div className="flex items-center justify-center mb-2">
+                <Info className="w-3 h-3 text-blue-500 mr-1" />
+                <span className="text-xs font-medium text-gray-700">시스템 버전</span>
+              </div>
+              <div className="text-center">
+                <p className="text-sm font-bold text-blue-600">{versionInfo.version}</p>
+                <p className="text-xs text-gray-500 mt-1">{versionInfo.date}</p>
+                <p className="text-xs text-gray-400 mt-1 leading-tight">{versionInfo.description}</p>
+                {versionInfo.build !== 'dev' && (
+                  <p className="text-xs text-gray-400 mt-1">Build: {versionInfo.build}</p>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>

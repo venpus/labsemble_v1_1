@@ -9,6 +9,7 @@ yarn.lock
 MJ_APP/
 Mobile/
 Mobile2/
+AndroidAPP/
 
 # Production builds
 client/build/

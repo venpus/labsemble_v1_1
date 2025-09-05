@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { toast } from 'react-hot-toast';
-import { ArrowLeft, Box, Package, Calendar, Truck, Eye, Edit, Trash2 } from 'lucide-react';
+import { ArrowLeft, Box, Package, Calendar, Truck, Eye, Edit, Trash2, Printer } from 'lucide-react';
+import PackingCodeDetailPrint from './PackingCodeDetailPrint';
 
 const PackingCodeDetailList = () => {
   const [searchParams] = useSearchParams();
@@ -18,6 +19,9 @@ const PackingCodeDetailList = () => {
     totalPackingCodes: 0,
     logisticCompanies: []
   });
+
+  // 인쇄 모달 상태
+  const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
 
   // URL 파라미터에서 날짜 정보 추출
   const displayDate = date === 'no-date' ? '날짜 미지정' : date;
@@ -304,6 +308,20 @@ const PackingCodeDetailList = () => {
     navigate('/dashboard/mj-packing-list');
   };
 
+  // 인쇄 모달 열기
+  const handlePrint = () => {
+    if (packingData.length === 0) {
+      toast.error('인쇄할 데이터가 없습니다.');
+      return;
+    }
+    setIsPrintModalOpen(true);
+  };
+
+  // 인쇄 모달 닫기
+  const handleClosePrintModal = () => {
+    setIsPrintModalOpen(false);
+  };
+
   // 포장코드 상세 페이지로 이동
   const handlePackingCodeDetail = (packingCode) => {
     navigate(`/dashboard/mj-packing-list/detail/${packingCode}`);
@@ -434,6 +452,16 @@ const PackingCodeDetailList = () => {
               <ArrowLeft className="w-4 h-4 mr-2" />
               뒤로 가기
             </button>
+            
+            {/* 인쇄 버튼 */}
+            <button
+              onClick={handlePrint}
+              className="inline-flex items-center px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 transition-colors"
+            >
+              <Printer className="w-4 h-4 mr-2" />
+              인쇄
+            </button>
+            
             {/* Admin 권한 사용자에게만 편집 버튼 표시 */}
             {isAdmin && (
               <button
@@ -634,6 +662,16 @@ const PackingCodeDetailList = () => {
           </div>
         </div>
       )}
+
+      {/* 인쇄 모달 */}
+      <PackingCodeDetailPrint
+        isOpen={isPrintModalOpen}
+        onClose={handleClosePrintModal}
+        packingData={packingData}
+        selectedDate={displayDate}
+        summary={summary}
+      />
+
     </div>
   );
 };
