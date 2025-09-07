@@ -179,9 +179,19 @@ router.get('/download/:versionCode', async (req, res) => {
   try {
     const { versionCode } = req.params;
     
-    console.log('📱 [App-Update] APK 다운로드 요청:', { versionCode });
+    console.log('📱 [App-Update] APK 다운로드 요청 시작:', { versionCode });
+    console.log('📱 [App-Update] 요청 파라미터:', req.params);
+    console.log('📱 [App-Update] 요청 쿼리:', req.query);
+    
+    // 데이터베이스 연결 테스트
+    console.log('📱 [App-Update] 데이터베이스 연결 테스트 시작');
+    if (!pool) {
+      throw new Error('데이터베이스 연결이 없습니다.');
+    }
+    console.log('📱 [App-Update] 데이터베이스 연결 확인됨');
     
     // 버전 정보 조회
+    console.log('📱 [App-Update] 데이터베이스 쿼리 실행 시작');
     const [versions] = await pool.execute(`
       SELECT 
         version_code,
@@ -237,7 +247,11 @@ router.get('/download/:versionCode', async (req, res) => {
     
     // 응답 헤더 설정
     res.setHeader('Content-Type', 'application/vnd.android.package-archive');
-    res.setHeader('Content-Disposition', `attachment; filename="MJ유통매니저_v${version.version_name}.apk"`);
+    
+    // 한글 파일명을 URL 인코딩하여 설정
+    const encodedFilename = encodeURIComponent(`MJ유통매니저_v${version.version_name}.apk`);
+    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodedFilename}`);
+    
     res.setHeader('Content-Length', fileSize);
     res.setHeader('Cache-Control', 'no-cache');
     
