@@ -883,6 +883,80 @@ router.get('/balance-payment-schedule', authMiddleware, async (req, res) => {
   }
 });
 
+// 모바일 전용: 모든 미지급 항목을 한 번에 조회
+router.get('/unpaid-summary', authMiddleware, async (req, res) => {
+  const connection = await pool.getConnection();
+  
+  try {
+    const userId = req.user.userId;
+    
+    // 1. 미지급 선금 조회 (payment_status.advance = false)
+    const [unpaidAdvanceRows] = await connection.execute(`
+      SELECT 
+        SUM(CAST(advance_payment AS DECIMAL(15,2))) as total_unpaid_advance,
+        COUNT(*) as project_count
+      FROM mj_project 
+      WHERE JSON_EXTRACT(payment_status, '$.advance') = false
+        AND advance_payment IS NOT NULL
+        AND advance_payment != ''
+        AND advance_payment > 0
+    `);
+    
+    // 2. 미지급 잔금 조회 (payment_status.balance = false)
+    const [unpaidBalanceRows] = await connection.execute(`
+      SELECT 
+        SUM(CAST(balance_amount AS DECIMAL(15,2))) as total_unpaid_balance,
+        COUNT(*) as project_count
+      FROM mj_project 
+      WHERE JSON_EXTRACT(payment_status, '$.balance') = false
+        AND balance_amount IS NOT NULL
+        AND balance_amount != ''
+        AND balance_amount > 0
+    `);
+    
+    // 3. 미지급 배송비 조회 (logistic_payment에서 is_paid = 0)
+    const [unpaidShippingRows] = await connection.execute(`
+      SELECT 
+        SUM(CAST(logistic_fee AS DECIMAL(15,2))) as total_unpaid_shipping_cost,
+        COUNT(*) as total_unpaid_records
+      FROM logistic_payment 
+      WHERE logistic_fee IS NOT NULL 
+        AND logistic_fee > 0
+        AND is_paid = 0
+    `);
+    
+    const responseData = {
+      totalUnpaidAdvance: Number(unpaidAdvanceRows[0]?.total_unpaid_advance ?? 0),
+      totalUnpaidBalance: Number(unpaidBalanceRows[0]?.total_unpaid_balance ?? 0),
+      totalUnpaidShippingCost: Number(unpaidShippingRows[0]?.total_unpaid_shipping_cost ?? 0),
+      projectCount: {
+        unpaidAdvance: unpaidAdvanceRows[0]?.project_count ?? 0,
+        unpaidBalance: unpaidBalanceRows[0]?.project_count ?? 0
+      },
+      shippingCount: {
+        unpaidRecords: unpaidShippingRows[0]?.total_unpaid_records ?? 0
+      }
+    };
+    
+    devLog(`[Finance] 미지급 요약 정보 조회 성공 - User: ${userId}, Advance: ${responseData.totalUnpaidAdvance} CNY, Balance: ${responseData.totalUnpaidBalance} CNY, Shipping: ${responseData.totalUnpaidShippingCost} CNY`);
+    
+    res.json({
+      success: true,
+      data: responseData
+    });
+    
+  } catch (error) {
+    errorLog(`[Finance] 미지급 요약 정보 조회 실패: ${error.message}`);
+    res.status(500).json({ 
+      success: false, 
+      message: '미지급 요약 정보 조회 중 오류가 발생했습니다.', 
+      error: error.message 
+    });
+  } finally {
+    connection.release();
+  }
+});
+
 // mj_project에서 Payment 지급일 데이터를 Finance 장부 형식으로 조회
 router.get('/payment-schedule', authMiddleware, async (req, res) => {
   const connection = await pool.getConnection();
