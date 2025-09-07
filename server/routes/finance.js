@@ -1134,6 +1134,97 @@ router.get('/payment-schedule-details', authMiddleware, async (req, res) => {
   }
 });
 
+// 모바일 전용: 날짜별 지급 예정 정보 조회
+router.get('/payment-schedule-by-date', authMiddleware, async (req, res) => {
+  const connection = await pool.getConnection();
+  
+  try {
+    const userId = req.user.userId;
+    
+    // 1. 선금 지급 예정을 날짜별로 그룹화
+    const [advanceRows] = await connection.execute(`
+      SELECT 
+        p.actual_order_date as payment_date,
+        COUNT(*) as count,
+        SUM(CAST(p.advance_payment AS DECIMAL(15,2))) as total_amount
+      FROM mj_project p
+      WHERE JSON_EXTRACT(p.payment_status, '$.advance') = false
+        AND p.advance_payment IS NOT NULL
+        AND p.advance_payment != ''
+        AND p.advance_payment > 0
+        AND p.actual_order_date IS NOT NULL
+      GROUP BY p.actual_order_date
+      ORDER BY p.actual_order_date DESC
+    `);
+    
+    // 2. 잔금 지급 예정을 날짜별로 그룹화
+    const [balanceRows] = await connection.execute(`
+      SELECT 
+        p.balance_due_date as payment_date,
+        COUNT(*) as count,
+        SUM(CAST(p.balance_amount AS DECIMAL(15,2))) as total_amount
+      FROM mj_project p
+      WHERE JSON_EXTRACT(p.payment_status, '$.balance') = false
+        AND p.balance_amount IS NOT NULL
+        AND p.balance_amount != ''
+        AND p.balance_amount > 0
+        AND p.balance_due_date IS NOT NULL
+      GROUP BY p.balance_due_date
+      ORDER BY p.balance_due_date DESC
+    `);
+    
+    // 3. 배송비 지급 예정을 날짜별로 그룹화
+    const [shippingRows] = await connection.execute(`
+      SELECT 
+        lp.pl_date as payment_date,
+        COUNT(*) as count,
+        SUM(CAST(lp.logistic_fee AS DECIMAL(15,2))) as total_amount
+      FROM logistic_payment lp
+      WHERE lp.logistic_fee IS NOT NULL 
+        AND lp.logistic_fee > 0
+        AND lp.is_paid = 0
+        AND lp.pl_date IS NOT NULL
+      GROUP BY lp.pl_date
+      ORDER BY lp.pl_date DESC
+    `);
+    
+    const responseData = {
+      advancePaymentsByDate: advanceRows.map(row => ({
+        paymentDate: row.payment_date,
+        count: row.count,
+        totalAmount: Number(row.total_amount)
+      })),
+      balancePaymentsByDate: balanceRows.map(row => ({
+        paymentDate: row.payment_date,
+        count: row.count,
+        totalAmount: Number(row.total_amount)
+      })),
+      shippingPaymentsByDate: shippingRows.map(row => ({
+        paymentDate: row.payment_date,
+        count: row.count,
+        totalAmount: Number(row.total_amount)
+      }))
+    };
+    
+    devLog(`[Finance] 날짜별 지급 예정 정보 조회 성공 - User: ${userId}, Advance: ${advanceRows.length}일, Balance: ${balanceRows.length}일, Shipping: ${shippingRows.length}일`);
+    
+    res.json({
+      success: true,
+      data: responseData
+    });
+    
+  } catch (error) {
+    errorLog(`[Finance] 날짜별 지급 예정 정보 조회 실패: ${error.message}`);
+    res.status(500).json({ 
+      success: false, 
+      message: '날짜별 지급 예정 정보 조회 중 오류가 발생했습니다.', 
+      error: error.message 
+    });
+  } finally {
+    connection.release();
+  }
+});
+
 // mj_project에서 Payment 지급일 데이터를 Finance 장부 형식으로 조회
 router.get('/payment-schedule', authMiddleware, async (req, res) => {
   const connection = await pool.getConnection();
