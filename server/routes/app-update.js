@@ -8,7 +8,7 @@ const authMiddleware = require('../middleware/auth');
 
 const router = express.Router();
 
-// APK 업로드를 위한 multer 설정
+// APK 업로드를 위한 multer 설정 (임시 파일명으로 업로드)
 const apkStorage = multer.diskStorage({
   destination: function (req, file, cb) {
     const uploadPath = path.join(__dirname, '..', 'uploads', 'apk');
@@ -27,10 +27,10 @@ const apkStorage = multer.diskStorage({
     cb(null, uploadPath);
   },
   filename: function (req, file, cb) {
-    const versionCode = req.body.versionCode;
-    const filename = `v${versionCode}.apk`;
-    console.log(`📁 [App-Update] APK 파일명 생성: ${filename}`);
-    cb(null, filename);
+    // 임시 파일명으로 업로드 (나중에 rename)
+    const tempFilename = `temp_${Date.now()}_${file.originalname}`;
+    console.log(`📁 [App-Update] APK 임시 파일명: ${tempFilename}`);
+    cb(null, tempFilename);
   }
 });
 
@@ -398,6 +398,19 @@ router.post('/upload', authMiddleware, apkUpload.single('apk'), async (req, res)
     const fileBuffer = fs.readFileSync(req.file.path);
     const checksum = crypto.createHash('sha256').update(fileBuffer).digest('hex');
 
+    // 올바른 파일명으로 파일명 변경
+    const correctFilename = `v${versionCode}.apk`;
+    const correctFilePath = path.join(path.dirname(req.file.path), correctFilename);
+    
+    // 기존 파일이 있으면 삭제
+    if (fs.existsSync(correctFilePath)) {
+      fs.unlinkSync(correctFilePath);
+    }
+    
+    // 임시 파일을 올바른 파일명으로 변경
+    fs.renameSync(req.file.path, correctFilePath);
+    console.log(`📁 [App-Update] 파일명 변경: ${req.file.filename} → ${correctFilename}`);
+
     // 기존 버전 비활성화
     await pool.execute(`
       UPDATE app_versions 
@@ -445,9 +458,18 @@ router.post('/upload', authMiddleware, apkUpload.single('apk'), async (req, res)
   } catch (error) {
     console.error('📱 [App-Update] APK 업로드 오류:', error);
     
-    // 업로드된 파일이 있으면 삭제
-    if (req.file && fs.existsSync(req.file.path)) {
-      fs.unlinkSync(req.file.path);
+    // 업로드된 파일이 있으면 삭제 (임시 파일과 변경된 파일 모두)
+    if (req.file) {
+      const tempPath = req.file.path;
+      const correctFilename = `v${req.body.versionCode}.apk`;
+      const correctFilePath = path.join(path.dirname(tempPath), correctFilename);
+      
+      if (fs.existsSync(tempPath)) {
+        fs.unlinkSync(tempPath);
+      }
+      if (fs.existsSync(correctFilePath)) {
+        fs.unlinkSync(correctFilePath);
+      }
     }
     
     res.status(500).json({
