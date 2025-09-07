@@ -4,6 +4,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import Sidebar from './Sidebar';
 import Partners from './Admin/Partners';
 import UserManage from './Admin/UserManage';
+import AppUpdateManagement from './Admin/AppUpdateManagement';
 import ProjectLists from '../../components/Project/MJ/ProjectLists';
 import ProjectDetails from '../../components/Project/MJ/ProjectDetails';
 import { MJCalendar } from '../../components/Calendar';
@@ -24,6 +25,8 @@ const Dashboard = () => {
       setSelectedMenu('partner-settings');
     } else if (path.includes('/admin/users')) {
       setSelectedMenu('user-management');
+    } else if (path.includes('/admin/app-update')) {
+      setSelectedMenu('app-update-management');
     } else if (path.includes('/admin')) {
       setSelectedMenu('admin-dashboard');
     } else if (path.includes('/mj-projects/') && path.split('/').length > 3) {
@@ -86,6 +89,8 @@ const Dashboard = () => {
             <p className="text-gray-600">관리자 전용 통계 및 현황이 여기에 표시됩니다.</p>
           </div>
         );
+      case 'app-update-management':
+        return <AppUpdateManagement />;
       default:
         return (
           <div className="p-6">

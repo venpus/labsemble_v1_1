@@ -40,6 +40,7 @@ function App() {
               <Route path="/dashboard/admin/partners" element={<Dashboard />} />
               <Route path="/dashboard/admin/users" element={<Dashboard />} />
               <Route path="/dashboard/admin" element={<Dashboard />} />
+              <Route path="/dashboard/admin/app-update" element={<Dashboard />} />
               <Route path="/dashboard/mj-projects" element={<Dashboard />} />
               <Route path="/dashboard/mj-projects/:id" element={<Dashboard />} />
               <Route path="/dashboard/mj-calendar" element={<Dashboard />} />

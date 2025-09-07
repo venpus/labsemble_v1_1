@@ -13,7 +13,9 @@ import {
   DollarSign,
   Info,
   ChevronDown,
-  ChevronRight
+  ChevronRight,
+  Smartphone,
+  Upload
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { versionInfo } from '../../config/version';
@@ -94,6 +96,13 @@ const Sidebar = ({ selectedMenu, setSelectedMenu }) => {
         icon: Shield,
         path: '/dashboard/admin',
         description: '시스템 현황 및 관리 통계'
+      },
+      {
+        id: 'app-update-management',
+        label: '앱 업데이트 관리',
+        icon: Smartphone,
+        path: '/dashboard/admin/app-update',
+        description: '모바일 앱 버전 관리 및 APK 업로드'
       }
     ]
   };

@@ -1111,6 +1111,85 @@ async function migrateFinanceExpenseTable() {
   }
 }
 
+// app_versions 테이블 마이그레이션 함수
+async function migrateAppVersionsTable() {
+  const connection = await pool.getConnection();
+  
+  try {
+    console.log('🔄 app_versions 테이블 마이그레이션 시작...');
+    
+    // app_versions 테이블 존재 여부 확인
+    const [tables] = await connection.execute(
+      "SHOW TABLES LIKE 'app_versions'"
+    );
+
+    if (tables.length === 0) {
+      // app_versions 테이블 생성
+      await connection.execute(`
+        CREATE TABLE app_versions (
+          id INT PRIMARY KEY AUTO_INCREMENT,
+          version_code INT NOT NULL,
+          version_name VARCHAR(50) NOT NULL,
+          download_url VARCHAR(500),
+          release_notes TEXT,
+          force_update BOOLEAN DEFAULT FALSE,
+          min_sdk INT DEFAULT 33,
+          target_sdk INT DEFAULT 36,
+          file_size BIGINT,
+          checksum VARCHAR(64),
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          is_active BOOLEAN DEFAULT TRUE,
+          
+          UNIQUE KEY unique_version_code (version_code),
+          INDEX idx_version_code (version_code),
+          INDEX idx_is_active (is_active),
+          INDEX idx_created_at (created_at)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        COMMENT='앱 버전 관리 테이블'
+      `);
+      
+      console.log('✅ app_versions 테이블 생성 완료');
+      
+      // 초기 데이터 삽입 (현재 버전)
+      await connection.execute(`
+        INSERT INTO app_versions (
+          version_code, 
+          version_name, 
+          download_url, 
+          release_notes, 
+          force_update,
+          min_sdk,
+          target_sdk,
+          file_size,
+          checksum
+        ) VALUES (
+          1, 
+          '1.0', 
+          'v1.apk', 
+          '초기 버전', 
+          FALSE,
+          33,
+          36,
+          0,
+          NULL
+        )
+      `);
+      
+      console.log('✅ app_versions 초기 데이터 삽입 완료');
+      return { success: true, added: true, message: 'app_versions 테이블이 생성되었습니다.' };
+    } else {
+      console.log('ℹ️ app_versions 테이블이 이미 존재합니다.');
+      return { success: true, added: false, message: 'app_versions 테이블이 이미 존재합니다.' };
+    }
+    
+  } catch (error) {
+    console.error('❌ app_versions 테이블 마이그레이션 오류:', error);
+    return { success: false, error: error.message };
+  } finally {
+    connection.release();
+  }
+}
+
 // 지급 요청 테이블 마이그레이션 함수
 async function migratePaymentRequestTables() {
   const connection = await pool.getConnection();
@@ -1467,6 +1546,15 @@ async function initializeDatabase() {
       console.error('❌ 지급 요청 테이블 마이그레이션 실패:', paymentRequestMigrationResult.error);
     }
     
+    // app_versions 테이블 마이그레이션 실행
+    console.log('🔄 app_versions 테이블 마이그레이션 시작...');
+    const appVersionsMigrationResult = await migrateAppVersionsTable();
+    if (appVersionsMigrationResult.success) {
+      console.log('✅ app_versions 테이블 마이그레이션 완료:', appVersionsMigrationResult.message);
+    } else {
+      console.error('❌ app_versions 테이블 마이그레이션 실패:', appVersionsMigrationResult.error);
+    }
+    
     console.log('🎉 모든 마이그레이션이 완료되었습니다!');
     
   } catch (error) {
@@ -1520,5 +1608,6 @@ module.exports = {
   migrateFinanceIncomingTable,
   migrateFinanceExpenseTable,
   migrateLogisticPaymentTable,
-  migratePaymentRequestTables
+  migratePaymentRequestTables,
+  migrateAppVersionsTable
 }; 
