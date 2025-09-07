@@ -174,8 +174,8 @@ router.get('/version-check', authMiddleware, async (req, res) => {
   }
 });
 
-// APK 다운로드 API
-router.get('/download/:versionCode', authMiddleware, async (req, res) => {
+// APK 다운로드 API (공개 접근)
+router.get('/download/:versionCode', async (req, res) => {
   try {
     const { versionCode } = req.params;
     
