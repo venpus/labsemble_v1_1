@@ -957,6 +957,183 @@ router.get('/unpaid-summary', authMiddleware, async (req, res) => {
   }
 });
 
+// 모바일 전용: 지급 예정 요약 정보 조회
+router.get('/payment-schedule-summary', authMiddleware, async (req, res) => {
+  const connection = await pool.getConnection();
+  
+  try {
+    const userId = req.user.userId;
+    
+    // 1. 선금 지급 예정 조회 (payment_status.advance = false)
+    const [advanceRows] = await connection.execute(`
+      SELECT 
+        SUM(CAST(advance_payment AS DECIMAL(15,2))) as total_advance_payment_schedule,
+        COUNT(*) as project_count
+      FROM mj_project 
+      WHERE JSON_EXTRACT(payment_status, '$.advance') = false
+        AND advance_payment IS NOT NULL
+        AND advance_payment != ''
+        AND advance_payment > 0
+    `);
+    
+    // 2. 잔금 지급 예정 조회 (payment_status.balance = false)
+    const [balanceRows] = await connection.execute(`
+      SELECT 
+        SUM(CAST(balance_amount AS DECIMAL(15,2))) as total_balance_payment_schedule,
+        COUNT(*) as project_count
+      FROM mj_project 
+      WHERE JSON_EXTRACT(payment_status, '$.balance') = false
+        AND balance_amount IS NOT NULL
+        AND balance_amount != ''
+        AND balance_amount > 0
+    `);
+    
+    // 3. 배송비 지급 예정 조회 (logistic_payment에서 is_paid = 0)
+    const [shippingRows] = await connection.execute(`
+      SELECT 
+        SUM(CAST(logistic_fee AS DECIMAL(15,2))) as total_shipping_payment_schedule,
+        COUNT(*) as total_schedule_records
+      FROM logistic_payment 
+      WHERE logistic_fee IS NOT NULL 
+        AND logistic_fee > 0
+        AND is_paid = 0
+    `);
+    
+    const advancePaymentSchedule = Number(advanceRows[0]?.total_advance_payment_schedule ?? 0);
+    const balancePaymentSchedule = Number(balanceRows[0]?.total_balance_payment_schedule ?? 0);
+    const shippingPaymentSchedule = Number(shippingRows[0]?.total_shipping_payment_schedule ?? 0);
+    const totalPaymentSchedule = advancePaymentSchedule + balancePaymentSchedule + shippingPaymentSchedule;
+    
+    const responseData = {
+      advancePaymentSchedule,
+      balancePaymentSchedule,
+      shippingPaymentSchedule,
+      totalPaymentSchedule,
+      projectCount: {
+        advance: advanceRows[0]?.project_count ?? 0,
+        balance: balanceRows[0]?.project_count ?? 0
+      },
+      shippingCount: {
+        shipping: shippingRows[0]?.total_schedule_records ?? 0
+      }
+    };
+    
+    devLog(`[Finance] 지급 예정 요약 정보 조회 성공 - User: ${userId}, Advance: ${advancePaymentSchedule} CNY, Balance: ${balancePaymentSchedule} CNY, Shipping: ${shippingPaymentSchedule} CNY, Total: ${totalPaymentSchedule} CNY`);
+    
+    res.json({
+      success: true,
+      data: responseData
+    });
+    
+  } catch (error) {
+    errorLog(`[Finance] 지급 예정 요약 정보 조회 실패: ${error.message}`);
+    res.status(500).json({ 
+      success: false, 
+      message: '지급 예정 요약 정보 조회 중 오류가 발생했습니다.', 
+      error: error.message 
+    });
+  } finally {
+    connection.release();
+  }
+});
+
+// 모바일 전용: 지급 예정 상세 정보 조회
+router.get('/payment-schedule-details', authMiddleware, async (req, res) => {
+  const connection = await pool.getConnection();
+  
+  try {
+    const userId = req.user.userId;
+    
+    // 1. 선금 지급 예정 상세 조회
+    const [advanceRows] = await connection.execute(`
+      SELECT 
+        p.id,
+        p.project_name,
+        p.advance_payment,
+        p.actual_order_date,
+        p.payment_status
+      FROM mj_project p
+      WHERE JSON_EXTRACT(p.payment_status, '$.advance') = false
+        AND p.advance_payment IS NOT NULL
+        AND p.advance_payment != ''
+        AND p.advance_payment > 0
+      ORDER BY p.actual_order_date DESC
+    `);
+    
+    // 2. 잔금 지급 예정 상세 조회
+    const [balanceRows] = await connection.execute(`
+      SELECT 
+        p.id,
+        p.project_name,
+        p.balance_amount,
+        p.balance_due_date,
+        p.payment_status
+      FROM mj_project p
+      WHERE JSON_EXTRACT(p.payment_status, '$.balance') = false
+        AND p.balance_amount IS NOT NULL
+        AND p.balance_amount != ''
+        AND p.balance_amount > 0
+      ORDER BY p.balance_due_date DESC
+    `);
+    
+    // 3. 배송비 지급 예정 상세 조회
+    const [shippingRows] = await connection.execute(`
+      SELECT 
+        lp.id,
+        lp.packing_code,
+        lp.pl_date,
+        lp.logistic_fee,
+        lp.description
+      FROM logistic_payment lp
+      WHERE lp.logistic_fee IS NOT NULL 
+        AND lp.logistic_fee > 0
+        AND lp.is_paid = 0
+      ORDER BY lp.logistic_fee DESC
+    `);
+    
+    const responseData = {
+      advancePayments: advanceRows.map(row => ({
+        id: row.id,
+        projectName: row.project_name,
+        amount: Number(row.advance_payment),
+        orderDate: row.actual_order_date,
+        paymentStatus: row.payment_status
+      })),
+      balancePayments: balanceRows.map(row => ({
+        id: row.id,
+        projectName: row.project_name,
+        amount: Number(row.balance_amount),
+        dueDate: row.balance_due_date,
+        paymentStatus: row.payment_status
+      })),
+      shippingPayments: shippingRows.map(row => ({
+        id: row.id,
+        packingCode: row.packing_code,
+        plDate: row.pl_date,
+        amount: Number(row.logistic_fee),
+        description: row.description
+      }))
+    };
+    
+    devLog(`[Finance] 지급 예정 상세 정보 조회 성공 - User: ${userId}, Advance: ${advanceRows.length}건, Balance: ${balanceRows.length}건, Shipping: ${shippingRows.length}건`);
+    
+    res.json({
+      success: true,
+      data: responseData
+    });
+    
+  } catch (error) {
+    errorLog(`[Finance] 지급 예정 상세 정보 조회 실패: ${error.message}`);
+    res.status(500).json({ 
+      success: false, 
+      message: '지급 예정 상세 정보 조회 중 오류가 발생했습니다.', 
+      error: error.message 
+    });
+  } finally {
+    connection.release();
+  }
+});
+
 // mj_project에서 Payment 지급일 데이터를 Finance 장부 형식으로 조회
 router.get('/payment-schedule', authMiddleware, async (req, res) => {
   const connection = await pool.getConnection();
