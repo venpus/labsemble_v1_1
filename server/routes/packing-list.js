@@ -24,7 +24,7 @@ router.get('/calendar/logistics-events', auth, async (req, res) => {
         project_id,
         created_at,
         updated_at
-      FROM packing_lists 
+      FROM mj_packing_list 
       WHERE pl_date IS NOT NULL
       ORDER BY pl_date DESC, created_at DESC
     `;
