@@ -3,6 +3,52 @@ const router = express.Router();
 const { pool } = require('../config/database');
 const auth = require('../middleware/auth');
 
+// 물류달력 이벤트 조회
+router.get('/calendar/logistics-events', auth, async (req, res) => {
+  const connection = await pool.getConnection();
+  
+  try {
+    const query = `
+      SELECT 
+        id,
+        packing_code,
+        product_name,
+        product_sku,
+        product_image,
+        box_count,
+        packaging_method,
+        packaging_count,
+        quantity_per_box,
+        pl_date,
+        logistic_company,
+        project_id,
+        created_at,
+        updated_at
+      FROM packing_lists 
+      WHERE pl_date IS NOT NULL
+      ORDER BY pl_date DESC, created_at DESC
+    `;
+    
+    const [rows] = await connection.execute(query);
+    
+    res.json({
+      success: true,
+      data: rows,
+      message: '물류달력 이벤트 조회 성공'
+    });
+    
+  } catch (error) {
+    console.error('물류달력 이벤트 조회 오류:', error);
+    res.status(500).json({
+      success: false,
+      message: '물류달력 이벤트 조회 실패',
+      error: error.message
+    });
+  } finally {
+    connection.release();
+  }
+});
+
 // 패킹리스트 자동 저장 (포커스 아웃 시)
 router.post('/auto-save', auth, async (req, res) => {
   const connection = await pool.getConnection();
@@ -897,6 +943,52 @@ router.get('/calendar/events', auth, async (req, res) => {
       error: '패킹리스트 달력 데이터 조회 중 오류가 발생했습니다.',
       details: error.message,
       processingTime: processingTime
+    });
+  } finally {
+    connection.release();
+  }
+});
+
+// 물류 달력을 위한 패킹 리스트 이벤트 조회
+router.get('/calendar/logistics-events', auth, async (req, res) => {
+  const connection = await pool.getConnection();
+  
+  try {
+    const query = `
+      SELECT 
+        id,
+        packing_code,
+        product_name,
+        product_sku,
+        product_image,
+        box_count,
+        packaging_method,
+        packaging_count,
+        quantity_per_box,
+        pl_date,
+        logistic_company,
+        project_id,
+        created_at,
+        updated_at
+      FROM mj_packing_list 
+      WHERE pl_date IS NOT NULL
+      ORDER BY pl_date DESC, created_at DESC
+    `;
+    
+    const [rows] = await connection.execute(query);
+    
+    res.json({
+      success: true,
+      data: rows,
+      message: '물류 이벤트 조회 성공'
+    });
+    
+  } catch (error) {
+    console.error('물류 이벤트 조회 오류:', error);
+    res.status(500).json({
+      success: false,
+      message: '물류 이벤트 조회 중 오류가 발생했습니다.',
+      error: error.message
     });
   } finally {
     connection.release();
