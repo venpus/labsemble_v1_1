@@ -193,7 +193,14 @@ router.get('/download/:versionCode', async (req, res) => {
       WHERE version_code = ? AND is_active = true
     `, [versionCode]);
     
+    console.log('📱 [App-Update] 데이터베이스 조회 결과:', { 
+      versionCode, 
+      foundVersions: versions.length,
+      versions: versions 
+    });
+    
     if (versions.length === 0) {
+      console.log('❌ [App-Update] 버전을 찾을 수 없음:', { versionCode });
       return res.status(404).json({
         success: false,
         error: '해당 버전을 찾을 수 없습니다.'
@@ -203,8 +210,15 @@ router.get('/download/:versionCode', async (req, res) => {
     const version = versions[0];
     const filePath = path.join(__dirname, '..', 'uploads', 'apk', version.download_url);
     
+    console.log('📱 [App-Update] 파일 경로 확인:', { 
+      downloadUrl: version.download_url,
+      filePath: filePath,
+      fileExists: fs.existsSync(filePath)
+    });
+    
     // 파일 존재 확인
     if (!fs.existsSync(filePath)) {
+      console.log('❌ [App-Update] APK 파일이 존재하지 않음:', { filePath });
       return res.status(404).json({
         success: false,
         error: 'APK 파일을 찾을 수 없습니다.'
@@ -215,17 +229,36 @@ router.get('/download/:versionCode', async (req, res) => {
     const stat = fs.statSync(filePath);
     const fileSize = stat.size;
     
+    console.log('📱 [App-Update] 파일 정보:', { 
+      fileSize, 
+      fileName: version.download_url,
+      versionName: version.version_name
+    });
+    
     // 응답 헤더 설정
     res.setHeader('Content-Type', 'application/vnd.android.package-archive');
     res.setHeader('Content-Disposition', `attachment; filename="MJ유통매니저_v${version.version_name}.apk"`);
     res.setHeader('Content-Length', fileSize);
     res.setHeader('Cache-Control', 'no-cache');
     
+    console.log('📱 [App-Update] 응답 헤더 설정 완료, 파일 스트림 시작');
+    
     // 파일 스트림으로 전송
     const fileStream = fs.createReadStream(filePath);
+    
+    fileStream.on('error', (error) => {
+      console.error('❌ [App-Update] 파일 스트림 오류:', error);
+      if (!res.headersSent) {
+        res.status(500).json({
+          success: false,
+          error: '파일 읽기 중 오류가 발생했습니다.'
+        });
+      }
+    });
+    
     fileStream.pipe(res);
     
-    console.log('📱 [App-Update] APK 다운로드 완료:', {
+    console.log('📱 [App-Update] APK 다운로드 시작:', {
       versionCode,
       fileName: version.download_url,
       fileSize
