@@ -1583,6 +1583,7 @@ router.get('/calendar/order-events', authMiddleware, async (req, res) => {
         p.expected_factory_shipping_date,
         p.quantity,
         p.target_price,
+        p.unit_price,
         p.supplier_name,
         p.is_order_completed,
         p.is_factory_shipping_completed,
@@ -1630,11 +1631,13 @@ router.get('/calendar/order-events', authMiddleware, async (req, res) => {
         date: project.actual_order_date,
         time: '09:00', // 기본 시간
         location: project.supplier_name || '공급자 미지정',
-        description: `발주 수량: ${project.quantity}개, 목표가: ${project.target_price ? project.target_price.toLocaleString() : '미정'}원`,
+        description: `발주 수량: ${project.quantity}개, 단가: ${(parseFloat(project.unit_price) || parseFloat(project.target_price)) ? (parseFloat(project.unit_price) || parseFloat(project.target_price)).toLocaleString() : '미정'}CNY`,
         assignee: project.assignee || '담당자 미지정',
         productName: project.project_name,
         quantity: project.quantity || 0,
         unit: '개',
+        unitPrice: parseFloat(project.unit_price) || parseFloat(project.target_price) || 0,
+        targetPrice: project.target_price || 0,
         createdAt: project.created_at,
         updatedAt: project.updated_at,
         // 추가 정보
