@@ -1,23 +1,17 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Download, Filter, Search, Calendar, DollarSign, TrendingUp, TrendingDown, Truck } from 'lucide-react';
 import FinanceLedger from './FinanceLedger';
-import FinanceTransaction from './FinanceTransaction';
 import FinancePaymentSchedule from './FinancePaymentSchedule';
 import FinanceQuickStats from './FinanceQuickStats';
-import FinanceFilters from './FinanceFilters';
+import FinanceTabs from './FinanceTabs';
 import { useAuth } from '../../contexts/AuthContext';
 
 const Finance = () => {
   const { user } = useAuth();
   const isAdmin = user?.isAdmin || false;
-  const [activeTab, setActiveTab] = useState('ledger');
+  const [activeTab, setActiveTab] = useState('summary');
   const [transactions, setTransactions] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [dateFilter, setDateFilter] = useState({
-    startDate: '',
-    endDate: ''
-  });
+  const [dataLoading, setDataLoading] = useState(true); // 모든 데이터 로딩 상태
 
   const [summaryData, setSummaryData] = useState({
     totalAmountKRW: 0,
@@ -39,12 +33,6 @@ const Finance = () => {
   const [balancePaymentSchedule, setBalancePaymentSchedule] = useState(0); // 잔금 지급 예정
   const [shippingPaymentSchedule, setShippingPaymentSchedule] = useState(0); // 배송비 지급 예정
 
-  // Admin이 아닌 경우 거래내역 탭을 선택했을 때 장부 탭으로 자동 전환
-  useEffect(() => {
-    if (!isAdmin && activeTab === 'transaction') {
-      setActiveTab('ledger');
-    }
-  }, [isAdmin, activeTab]);
 
   // 지급 예정 선금 정보 가져오기 (payment_status.advance = false인 프로젝트들의 advance_payment 합계)
   const fetchAdvancePaymentSchedule = async () => {
@@ -464,44 +452,31 @@ const Finance = () => {
   };
 
   useEffect(() => {
-    fetchTransactions();
-    fetchAdvancePayment();
-    fetchAdvancePaymentSchedule(); // 지급 예정 선금 조회 추가
-    fetchBalancePaymentSchedule(); // 잔금 지급 예정 조회 추가
-    fetchShippingPaymentSchedule(); // 배송비 지급 예정 조회 추가
-    fetchTotalAmount();
-    fetchTotalFee();
-    fetchUnpaidAdvance();
-    fetchUnpaidBalance();
-    fetchTotalShippingCost(); // 총 배송비 조회 추가
-    fetchUnpaidShippingCost(); // 미지급 배송비 조회 추가
+    const loadAllData = async () => {
+      setDataLoading(true);
+      
+      // 모든 데이터를 병렬로 로드
+      await Promise.all([
+        fetchTransactions(),
+        fetchAdvancePayment(),
+        fetchAdvancePaymentSchedule(),
+        fetchBalancePaymentSchedule(),
+        fetchShippingPaymentSchedule(),
+        fetchTotalAmount(),
+        fetchTotalFee(),
+        fetchUnpaidAdvance(),
+        fetchUnpaidBalance(),
+        fetchTotalShippingCost(),
+        fetchUnpaidShippingCost()
+      ]);
+      
+      setDataLoading(false);
+    };
+    
+    loadAllData();
   }, []);
 
-  const filteredTransactions = transactions.filter(transaction => {
-    const searchLower = (searchTerm || '').toLowerCase();
-    const matchesSearch = (transaction.description?.toLowerCase() || '').includes(searchLower) ||
-                         (transaction.reference?.toLowerCase() || '').includes(searchLower);
-    const matchesDate = (!dateFilter?.startDate || (transaction.date && transaction.date >= dateFilter.startDate)) &&
-                       (!dateFilter?.endDate || (transaction.date && transaction.date <= dateFilter.endDate));
-    
-    return matchesSearch && matchesDate;
-  });
 
-  const handleAddTransaction = (newTransaction) => {
-    if (!newTransaction) return;
-    
-    // 새 거래 내역이 추가되면 목록을 새로고침
-    fetchTransactions();
-  };
-
-  const calculateNewBalance = (amount) => {
-    if (!transactions || transactions.length === 0) return amount;
-    return (transactions[0]?.balance || 0) + amount;
-  };
-
-  const exportToExcel = () => {
-    // Excel 내보내기 기능 (실제 구현 시 xlsx 라이브러리 사용)
-  };
 
   // CNY 기준 요약 통계 (API에서 가져온 데이터 사용, 숫자 타입 보장)
 
@@ -515,94 +490,51 @@ const Finance = () => {
               <h1 className="text-3xl font-bold text-gray-900">회계 장부</h1>
               <p className="text-gray-600 mt-1">수입/지출 관리 및 재무 현황</p>
             </div>
-            <div className="flex items-center space-x-3">
-              <button
-                onClick={exportToExcel}
-                className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors flex items-center space-x-2"
-              >
-                <Download className="w-4 h-4" />
-                <span>Excel 내보내기</span>
-              </button>
-              {isAdmin && (
-                <button
-                  onClick={() => setActiveTab('transaction')}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center space-x-2"
-                >
-                  <Plus className="w-4 h-4" />
-                  <span>거래내역 추가</span>
-                </button>
-              )}
-            </div>
           </div>
 
-          {/* Quick Stats Table */}
-          <FinanceQuickStats 
-            totalTransactionAmount={totalTransactionAmount}
-            totalAdvancePayment={totalAdvancePayment}
-            totalBalance={totalBalance}
-            totalShippingCost={totalShippingCost}
-            totalUnpaidAdvance={totalUnpaidAdvance}
-            totalUnpaidBalance={totalUnpaidBalance}
-            totalUnpaidShippingCost={totalUnpaidShippingCost}
-          />
         </div>
 
-        {/* 지급 예정 항목 표 (UI만 유지) */}
-        <FinancePaymentSchedule 
-          advancePaymentSchedule={advancePaymentSchedule}
-          balancePaymentSchedule={balancePaymentSchedule}
-          shippingPaymentSchedule={shippingPaymentSchedule}
-        />
 
-        {/* Filters */}
-        <FinanceFilters 
-          searchTerm={searchTerm}
-          onSearchChange={setSearchTerm}
-          dateFilter={dateFilter}
-          onDateFilterChange={setDateFilter}
-        />
 
         {/* Tabs */}
-        <div className="bg-white rounded-lg shadow-sm mb-6">
-          <div className="border-b border-gray-200">
-            <nav className="flex space-x-8 px-6">
-              {[
-                { id: 'ledger', label: '장부', icon: Calendar },
-                ...(isAdmin ? [{ id: 'transaction', label: '입금내역', icon: Plus }] : [])
-              ].map((tab) => {
-                const IconComponent = tab.icon;
-                return (
-                  <button
-                    key={tab.id}
-                    onClick={() => setActiveTab(tab.id)}
-                    className={`py-4 px-1 border-b-2 font-medium text-sm flex items-center space-x-2 ${
-                      activeTab === tab.id
-                        ? 'border-blue-500 text-blue-600'
-                        : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                    }`}
-                  >
-                    <IconComponent className="w-4 h-4" />
-                    <span>{tab.label}</span>
-                  </button>
-                );
-              })}
-            </nav>
-          </div>
-        </div>
+        <FinanceTabs activeTab={activeTab} setActiveTab={setActiveTab} />
 
         {/* Tab Content */}
         <div className="bg-white rounded-lg shadow-sm">
+          {activeTab === 'summary' && (
+            <div className="p-6">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">재무 요약</h3>
+              <FinanceQuickStats 
+                totalTransactionAmount={totalTransactionAmount}
+                totalAdvancePayment={totalAdvancePayment}
+                totalBalance={totalBalance}
+                totalShippingCost={totalShippingCost}
+                totalUnpaidAdvance={totalUnpaidAdvance}
+                totalUnpaidBalance={totalUnpaidBalance}
+                totalUnpaidShippingCost={totalUnpaidShippingCost}
+              />
+            </div>
+          )}
+          
+          {activeTab === 'payment' && (
+            <div className="p-6">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">지급현황</h3>
+              <FinancePaymentSchedule 
+                advancePaymentSchedule={advancePaymentSchedule}
+                balancePaymentSchedule={balancePaymentSchedule}
+                shippingPaymentSchedule={shippingPaymentSchedule}
+                dataLoading={dataLoading}
+              />
+            </div>
+          )}
+          
           {activeTab === 'ledger' && (
             <FinanceLedger 
-              transactions={filteredTransactions}
+              transactions={transactions}
               loading={loading}
             />
           )}
-          {activeTab === 'transaction' && isAdmin && (
-            <FinanceTransaction 
-              onAddTransaction={handleAddTransaction}
-            />
-          )}
+          
         </div>
       </div>
     </div>

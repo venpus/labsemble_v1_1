@@ -135,6 +135,7 @@ app.use('/api/warehouse', require('./routes/warehouse'));
 app.use('/api/packing-list', require('./routes/packing-list'));
 app.use('/api/finance', require('./routes/finance'));
 app.use('/api/logistic-payment', require('./routes/logistic-payment'));
+app.use('/api/payment-request', require('./routes/payment-request'));
 app.use('/api/mobile/finance', require('./routes/mobile-finance'));
 // app.use('/api/products', require('./routes/products'));
 // app.use('/api/orders', require('./routes/orders'));

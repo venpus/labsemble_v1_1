@@ -460,4 +460,60 @@ router.delete('/:id', auth, async (req, res) => {
   }
 });
 
+// 배송비 지급 예정 상세 목록 조회
+router.get('/shipping-payment-details', auth, async (req, res) => {
+  const connection = await pool.getConnection();
+  
+  try {
+    // is_paid = 0인 배송비 지급 예정 정보를 pl_date 기준으로 그룹화하여 조회
+    const [rows] = await connection.execute(`
+      SELECT 
+        pl_date,
+        COUNT(*) as box_count,
+        SUM(logistic_fee) as total_logistic_fee,
+        GROUP_CONCAT(DISTINCT packing_code ORDER BY packing_code SEPARATOR ', ') as packing_codes,
+        GROUP_CONCAT(DISTINCT logistic_company ORDER BY logistic_company SEPARATOR ', ') as logistic_companies
+      FROM logistic_payment 
+      WHERE is_paid = 0
+        AND logistic_fee > 0
+      GROUP BY pl_date
+      ORDER BY 
+        CASE 
+          WHEN pl_date IS NULL THEN 1 
+          ELSE 0 
+        END,
+        pl_date ASC
+    `);
+    
+    const shippingPayments = rows.map(row => ({
+      pl_date: row.pl_date,
+      box_count: row.box_count,
+      total_logistic_fee: row.total_logistic_fee,
+      packing_codes: row.packing_codes,
+      logistic_companies: row.logistic_companies
+    }));
+    
+    console.log(`✅ [LogisticPayment] 배송비 지급 예정 상세 조회 성공 - Count: ${shippingPayments.length}`);
+    
+    res.json({
+      success: true,
+      message: '배송비 지급 예정 상세 정보를 성공적으로 조회했습니다.',
+      data: {
+        shippingPayments
+      }
+    });
+    
+  } catch (error) {
+    console.error('❌ [LogisticPayment] 배송비 지급 예정 상세 조회 실패:', error);
+    
+    res.status(500).json({
+      success: false,
+      message: '배송비 지급 예정 상세 정보 조회 중 오류가 발생했습니다.',
+      error: error.message
+    });
+  } finally {
+    connection.release();
+  }
+});
+
 module.exports = router; 

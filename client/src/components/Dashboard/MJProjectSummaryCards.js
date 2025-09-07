@@ -80,6 +80,11 @@ const MJProjectSummaryCards = () => {
           project.factory_shipping_status === '출고 대기'
         ).length;
         
+        // 공장 출고완료 프로젝트 수
+        const factoryShippingCompleted = projects.filter(project => 
+          project.factory_shipping_status === '출고 완료'
+        ).length;
+        
         // 입고 상태별 프로젝트 수
         const warehouseStatus = {
           waiting: 0,
@@ -125,6 +130,7 @@ const MJProjectSummaryCards = () => {
         setSummaryData({
           orderWaiting,
           factoryShippingWaiting,
+          factoryShippingCompleted,
           warehouseStatus,
           exportStatus
         });
@@ -212,6 +218,20 @@ const MJProjectSummaryCards = () => {
             </div>
             <div className="p-3 bg-blue-100 rounded-full">
               <Truck className="w-6 h-6 text-blue-600" />
+            </div>
+          </div>
+        </div>
+
+        {/* 공장 출고완료 프로젝트 */}
+        <div className="bg-white p-6 rounded-lg shadow hover:shadow-md transition-shadow">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-lg font-semibold text-gray-900 mb-2">공장 출고완료</h3>
+              <p className="text-3xl font-bold text-green-600">{summaryData.factoryShippingCompleted}</p>
+              <p className="text-sm text-gray-500">프로젝트</p>
+            </div>
+            <div className="p-3 bg-green-100 rounded-full">
+              <Truck className="w-6 h-6 text-green-600" />
             </div>
           </div>
         </div>

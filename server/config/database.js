@@ -1111,6 +1111,100 @@ async function migrateFinanceExpenseTable() {
   }
 }
 
+// 지급 요청 테이블 마이그레이션 함수
+async function migratePaymentRequestTables() {
+  const connection = await pool.getConnection();
+  
+  try {
+    console.log('🔄 지급 요청 테이블 마이그레이션 시작...');
+    
+    // mj_payment_requests 테이블 존재 여부 확인
+    const [paymentRequestTables] = await connection.execute(
+      "SHOW TABLES LIKE 'mj_payment_requests'"
+    );
+
+    if (paymentRequestTables.length === 0) {
+      // mj_payment_requests 테이블 생성
+      await connection.execute(`
+        CREATE TABLE mj_payment_requests (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          project_id INT NOT NULL,
+          payment_type ENUM('advance', 'balance') NOT NULL COMMENT 'advance: 선금, balance: 잔금',
+          amount DECIMAL(15,2) NOT NULL COMMENT '지급 요청 금액 (CNY)',
+          fee_rate DECIMAL(5,2) DEFAULT NULL COMMENT '수수료율 (%) - 잔금 지급 요청시에만 사용',
+          request_date DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '요청일시',
+          status ENUM('pending', 'approved', 'rejected', 'completed') DEFAULT 'pending' COMMENT '처리 상태',
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          INDEX idx_project_id (project_id),
+          INDEX idx_payment_type (payment_type),
+          INDEX idx_status (status),
+          INDEX idx_request_date (request_date)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='프로젝트 기반 지급 요청 테이블'
+      `);
+      
+      console.log('✅ mj_payment_requests 테이블 생성 완료');
+    } else {
+      console.log('ℹ️ mj_payment_requests 테이블이 이미 존재합니다.');
+      
+      // 기존 테이블에 fee_rate 필드 추가 확인
+      const [columns] = await connection.execute(
+        "SHOW COLUMNS FROM mj_payment_requests LIKE 'fee_rate'"
+      );
+
+      if (columns.length === 0) {
+        // fee_rate 필드 추가
+        await connection.execute(`
+          ALTER TABLE mj_payment_requests 
+          ADD COLUMN fee_rate DECIMAL(5,2) DEFAULT NULL COMMENT '수수료율 (%) - 잔금 지급 요청시에만 사용'
+        `);
+        
+        console.log('✅ mj_payment_requests 테이블에 fee_rate 필드 추가 완료');
+      } else {
+        console.log('ℹ️ fee_rate 필드가 이미 존재합니다.');
+      }
+    }
+
+    // mj_shipping_payment_requests 테이블 존재 여부 확인
+    const [shippingRequestTables] = await connection.execute(
+      "SHOW TABLES LIKE 'mj_shipping_payment_requests'"
+    );
+
+    if (shippingRequestTables.length === 0) {
+      // mj_shipping_payment_requests 테이블 생성
+      await connection.execute(`
+        CREATE TABLE mj_shipping_payment_requests (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          pl_date DATE NOT NULL COMMENT '출고일',
+          total_boxes INT NOT NULL COMMENT '총 박스 수',
+          total_amount DECIMAL(15,2) NOT NULL COMMENT '총 배송비 금액 (CNY)',
+          packing_codes TEXT NOT NULL COMMENT '포장코드 목록 (쉼표로 구분)',
+          logistic_companies TEXT NOT NULL COMMENT '물류회사 목록 (쉼표로 구분)',
+          request_date DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '요청일시',
+          status ENUM('pending', 'approved', 'rejected', 'completed') DEFAULT 'pending' COMMENT '처리 상태',
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          INDEX idx_pl_date (pl_date),
+          INDEX idx_status (status),
+          INDEX idx_request_date (request_date)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='배송비 지급 요청 테이블'
+      `);
+      
+      console.log('✅ mj_shipping_payment_requests 테이블 생성 완료');
+    } else {
+      console.log('ℹ️ mj_shipping_payment_requests 테이블이 이미 존재합니다.');
+    }
+    
+    return { success: true, message: '지급 요청 테이블 마이그레이션이 완료되었습니다.' };
+    
+  } catch (error) {
+    console.error('❌ 지급 요청 테이블 마이그레이션 오류:', error);
+    return { success: false, error: error.message };
+  } finally {
+    connection.release();
+  }
+}
+
 // logistic_payment 테이블 마이그레이션 함수
 async function migrateLogisticPaymentTable() {
   const connection = await pool.getConnection();
@@ -1364,6 +1458,15 @@ async function initializeDatabase() {
       console.error('❌ finance_expense 테이블 마이그레이션 실패:', expenseMigrationResult.error);
     }
     
+    // 지급 요청 테이블 마이그레이션 실행
+    console.log('🔄 지급 요청 테이블 마이그레이션 시작...');
+    const paymentRequestMigrationResult = await migratePaymentRequestTables();
+    if (paymentRequestMigrationResult.success) {
+      console.log('✅ 지급 요청 테이블 마이그레이션 완료:', paymentRequestMigrationResult.message);
+    } else {
+      console.error('❌ 지급 요청 테이블 마이그레이션 실패:', paymentRequestMigrationResult.error);
+    }
+    
     console.log('🎉 모든 마이그레이션이 완료되었습니다!');
     
   } catch (error) {
@@ -1416,5 +1519,6 @@ module.exports = {
   migrateMJPackingListTable,
   migrateFinanceIncomingTable,
   migrateFinanceExpenseTable,
-  migrateLogisticPaymentTable
+  migrateLogisticPaymentTable,
+  migratePaymentRequestTables
 }; 

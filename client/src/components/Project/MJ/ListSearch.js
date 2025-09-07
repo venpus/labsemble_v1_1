@@ -11,7 +11,8 @@ const ListSearch = ({
   filterWarehouseStatus, 
   setFilterWarehouseStatus,
   onSearch,
-  onClearFilters
+  onClearFilters,
+  updateUrlParams
 }) => {
   const orderStatusOptions = [
     { value: 'all', label: '전체' },
@@ -21,7 +22,8 @@ const ListSearch = ({
 
   const shippingStatusOptions = [
     { value: 'all', label: '전체' },
-    { value: '정상 출고', label: '정상 출고' },
+    { value: '출고 완료', label: '출고 완료' },
+    { value: '정시 출고', label: '정시 출고' },
     { value: '조기 출고', label: '조기 출고' },
     { value: '출고 연기', label: '출고 연기' },
     { value: '출고 대기', label: '출고 대기' },
@@ -75,19 +77,27 @@ const ListSearch = ({
         {/* 검색어 입력 */}
         <div>
           <label htmlFor="searchTerm" className="block text-sm font-medium text-gray-700 mb-2">
-            프로젝트명 검색
+            프로젝트 검색
           </label>
           <div className="relative">
             <input
               type="text"
               id="searchTerm"
               value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="프로젝트명을 입력하세요..."
+              onChange={(e) => {
+                setSearchTerm(e.target.value);
+                if (updateUrlParams) {
+                  updateUrlParams({ search: e.target.value });
+                }
+              }}
+              placeholder="프로젝트명 또는 공급자명을 입력하세요..."
               className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
             />
             <Search className="absolute left-3 top-2.5 h-5 w-5 text-gray-400" />
           </div>
+          <p className="mt-1 text-xs text-gray-500">
+            프로젝트명과 공급자명에서 검색됩니다.
+          </p>
         </div>
 
         {/* 필터 옵션들 */}
@@ -100,7 +110,12 @@ const ListSearch = ({
             <select
               id="orderStatus"
               value={filterOrderStatus}
-              onChange={(e) => setFilterOrderStatus(e.target.value)}
+              onChange={(e) => {
+                setFilterOrderStatus(e.target.value);
+                if (updateUrlParams) {
+                  updateUrlParams({ orderStatus: e.target.value });
+                }
+              }}
               className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
             >
               {orderStatusOptions.map((option) => (
@@ -119,7 +134,12 @@ const ListSearch = ({
             <select
               id="shippingStatus"
               value={filterShippingStatus}
-              onChange={(e) => setFilterShippingStatus(e.target.value)}
+              onChange={(e) => {
+                setFilterShippingStatus(e.target.value);
+                if (updateUrlParams) {
+                  updateUrlParams({ shippingStatus: e.target.value });
+                }
+              }}
               className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
             >
               {shippingStatusOptions.map((option) => (
@@ -138,7 +158,12 @@ const ListSearch = ({
             <select
               id="warehouseStatus"
               value={filterWarehouseStatus}
-              onChange={(e) => setFilterWarehouseStatus(e.target.value)}
+              onChange={(e) => {
+                setFilterWarehouseStatus(e.target.value);
+                if (updateUrlParams) {
+                  updateUrlParams({ warehouseStatus: e.target.value });
+                }
+              }}
               className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
             >
               {warehouseStatusOptions.map((option) => (
@@ -169,7 +194,12 @@ const ListSearch = ({
               <span className="inline-flex items-center px-3 py-1 rounded-full text-sm bg-blue-100 text-blue-800">
                 프로젝트명: {searchTerm}
                 <button
-                  onClick={() => setSearchTerm('')}
+                  onClick={() => {
+                    setSearchTerm('');
+                    if (updateUrlParams) {
+                      updateUrlParams({ search: '' });
+                    }
+                  }}
                   className="ml-2 text-blue-600 hover:text-blue-800"
                 >
                   <X className="w-3 h-3" />
@@ -180,7 +210,12 @@ const ListSearch = ({
               <span className="inline-flex items-center px-3 py-1 rounded-full text-sm bg-green-100 text-green-800">
                 발주상태: {orderStatusOptions.find(opt => opt.value === filterOrderStatus)?.label}
                 <button
-                  onClick={() => setFilterOrderStatus('all')}
+                  onClick={() => {
+                    setFilterOrderStatus('all');
+                    if (updateUrlParams) {
+                      updateUrlParams({ orderStatus: 'all' });
+                    }
+                  }}
                   className="ml-2 text-green-600 hover:text-green-800"
                 >
                   <X className="w-3 h-3" />
@@ -191,7 +226,12 @@ const ListSearch = ({
               <span className="inline-flex items-center px-3 py-1 rounded-full text-sm bg-purple-100 text-purple-800">
                 공장출고: {shippingStatusOptions.find(opt => opt.value === filterShippingStatus)?.label}
                 <button
-                  onClick={() => setFilterShippingStatus('all')}
+                  onClick={() => {
+                    setFilterShippingStatus('all');
+                    if (updateUrlParams) {
+                      updateUrlParams({ shippingStatus: 'all' });
+                    }
+                  }}
                   className="ml-2 text-purple-600 hover:text-purple-800"
                 >
                   <X className="w-3 h-3" />
@@ -202,7 +242,12 @@ const ListSearch = ({
               <span className="inline-flex items-center px-3 py-1 rounded-full text-sm bg-orange-100 text-orange-800">
                 입고상태: {warehouseStatusOptions.find(opt => opt.value === filterWarehouseStatus)?.label}
                 <button
-                  onClick={() => setFilterWarehouseStatus('all')}
+                  onClick={() => {
+                    setFilterWarehouseStatus('all');
+                    if (updateUrlParams) {
+                      updateUrlParams({ warehouseStatus: 'all' });
+                    }
+                  }}
                   className="ml-2 text-orange-600 hover:text-orange-800"
                 >
                   <X className="w-3 h-3" />

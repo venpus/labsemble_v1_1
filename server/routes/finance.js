@@ -1051,4 +1051,125 @@ router.get('/payment-schedule', authMiddleware, async (req, res) => {
   }
 });
 
+// 선금 지급 예정 상세 목록 조회
+router.get('/advance-payment-details', authMiddleware, async (req, res) => {
+  const connection = await pool.getConnection();
+  
+  try {
+    const userId = req.user.userId;
+    
+    // payment_status.advance = false인 프로젝트들의 상세 정보 조회 (제품사진, 수량, 단가 포함)
+    const [rows] = await connection.execute(`
+      SELECT 
+        p.id,
+        p.project_name,
+        p.advance_payment,
+        p.quantity,
+        p.unit_price,
+        p.created_at,
+        (SELECT file_name FROM mj_project_images WHERE project_id = p.id ORDER BY id ASC LIMIT 1) as representative_image
+      FROM mj_project p
+      WHERE JSON_EXTRACT(p.payment_status, '$.advance') = false
+        AND p.advance_payment > 0
+      ORDER BY p.created_at DESC
+    `);
+    
+    const advancePayments = rows.map(row => ({
+      id: row.id,
+      project_id: row.id,
+      project_name: row.project_name,
+      advance_payment: row.advance_payment,
+      quantity: row.quantity,
+      unit_price: row.unit_price,
+      created_at: row.created_at,
+      notes: null,
+      representative_image: row.representative_image
+    }));
+    
+    devLog(`[Finance] 선금 지급 예정 상세 조회 성공 - User: ${userId}, Count: ${advancePayments.length}`);
+    
+    res.json({
+      success: true,
+      message: '선금 지급 예정 상세 정보를 성공적으로 조회했습니다.',
+      data: {
+        advancePayments
+      }
+    });
+    
+  } catch (error) {
+    errorLog(`[Finance] 선금 지급 예정 상세 조회 실패: ${error.message}`);
+    
+    res.status(500).json({
+      success: false,
+      message: '선금 지급 예정 상세 정보 조회 중 오류가 발생했습니다.',
+      error: error.message
+    });
+  } finally {
+    connection.release();
+  }
+});
+
+// 잔금 지급 예정 상세 목록 조회
+router.get('/balance-payment-details', authMiddleware, async (req, res) => {
+  const connection = await pool.getConnection();
+  
+  try {
+    const userId = req.user.userId;
+    
+    // payment_status.balance = false이고 balance_due_date가 오늘 이하인 프로젝트들의 상세 정보 조회 (제품사진, 수량, 단가, 수수료율 포함)
+    const [rows] = await connection.execute(`
+      SELECT 
+        p.id,
+        p.project_name,
+        p.balance_amount,
+        p.balance_due_date,
+        p.quantity,
+        p.unit_price,
+        p.fee_rate,
+        p.created_at,
+        (SELECT file_name FROM mj_project_images WHERE project_id = p.id ORDER BY id ASC LIMIT 1) as representative_image
+      FROM mj_project p
+      WHERE JSON_EXTRACT(p.payment_status, '$.balance') = false
+        AND p.balance_amount > 0
+        AND p.balance_due_date <= CURDATE()
+      ORDER BY p.balance_due_date ASC, p.created_at DESC
+    `);
+    
+    const balancePayments = rows.map(row => ({
+      id: row.id,
+      project_id: row.id,
+      project_name: row.project_name,
+      balance_amount: row.balance_amount,
+      balance_due_date: row.balance_due_date,
+      quantity: row.quantity,
+      unit_price: row.unit_price,
+      fee_rate: row.fee_rate,
+      created_at: row.created_at,
+      notes: null,
+      representative_image: row.representative_image
+    }));
+    
+    devLog(`[Finance] 잔금 지급 예정 상세 조회 성공 - User: ${userId}, Count: ${balancePayments.length}`);
+    
+    res.json({
+      success: true,
+      message: '잔금 지급 예정 상세 정보를 성공적으로 조회했습니다.',
+      data: {
+        balancePayments
+      }
+    });
+    
+  } catch (error) {
+    errorLog(`[Finance] 잔금 지급 예정 상세 조회 실패: ${error.message}`);
+    
+    res.status(500).json({
+      success: false,
+      message: '잔금 지급 예정 상세 정보 조회 중 오류가 발생했습니다.',
+      error: error.message
+    });
+  } finally {
+    connection.release();
+  }
+});
+
 module.exports = router; 

@@ -33,12 +33,19 @@ const ProjectLists = () => {
   const [filterShippingStatus, setFilterShippingStatus] = useState('all');
   const [filterWarehouseStatus, setFilterWarehouseStatus] = useState('all');
 
-  // URL 파라미터에서 페이지 상태 복원
+  // URL 파라미터에서 페이지 상태 및 필터 조건 복원
   useEffect(() => {
     const page = searchParams.get('page');
     const limit = searchParams.get('limit');
+    const search = searchParams.get('search');
+    const orderStatus = searchParams.get('orderStatus');
+    const shippingStatus = searchParams.get('shippingStatus');
+    const warehouseStatus = searchParams.get('warehouseStatus');
     
-    console.log('🔄 [ProjectLists] URL 파라미터 복원:', { page, limit, searchParams: searchParams.toString() });
+    console.log('🔄 [ProjectLists] URL 파라미터 복원:', { 
+      page, limit, search, orderStatus, shippingStatus, warehouseStatus, 
+      searchParams: searchParams.toString() 
+    });
     
     if (page) {
       const pageNum = parseInt(page, 10) || 1;
@@ -50,13 +57,36 @@ const ProjectLists = () => {
       console.log('📊 [ProjectLists] 페이지당 항목 수 복원:', limitNum);
       setItemsPerPage(limitNum);
     }
+    if (search !== null) {
+      console.log('🔍 [ProjectLists] 검색어 복원:', search);
+      setSearchTerm(search);
+    }
+    if (orderStatus !== null) {
+      console.log('📋 [ProjectLists] 발주상태 필터 복원:', orderStatus);
+      setFilterOrderStatus(orderStatus);
+    }
+    if (shippingStatus !== null) {
+      console.log('🚚 [ProjectLists] 공장출고 필터 복원:', shippingStatus);
+      setFilterShippingStatus(shippingStatus);
+    }
+    if (warehouseStatus !== null) {
+      console.log('📦 [ProjectLists] 입고상태 필터 복원:', warehouseStatus);
+      setFilterWarehouseStatus(warehouseStatus);
+    }
   }, [searchParams]);
 
   useEffect(() => {
     if (isAuthenticated) {
       fetchProjects();
     }
-  }, [isAuthenticated]);
+  }, [isAuthenticated, searchTerm, currentPage, itemsPerPage]);
+
+  // 검색어가 변경되면 첫 페이지로 이동
+  useEffect(() => {
+    if (searchTerm !== '') {
+      setCurrentPage(1);
+    }
+  }, [searchTerm]);
 
   // itemsPerPage가 변경되면 현재 페이지를 1로 리셋 (URL 파라미터가 없을 때만)
   useEffect(() => {
@@ -65,6 +95,7 @@ const ProjectLists = () => {
       setCurrentPage(1);
     }
   }, [itemsPerPage, searchParams]);
+
 
   // 프로젝트 데이터가 변경되면 필터링된 목록 업데이트
   useEffect(() => {
@@ -75,12 +106,7 @@ const ProjectLists = () => {
   const applyFilters = () => {
     let filtered = [...projects];
 
-    // 프로젝트명 검색
-    if (searchTerm.trim()) {
-      filtered = filtered.filter(project =>
-        project.project_name.toLowerCase().includes(searchTerm.toLowerCase())
-      );
-    }
+    // 프로젝트명 검색은 서버에서 처리되므로 클라이언트에서는 제거
 
     // 발주상태 필터
     if (filterOrderStatus !== 'all') {
@@ -108,7 +134,7 @@ const ProjectLists = () => {
         
         switch (filterWarehouseStatus) {
           case '입고완료':
-            return projectQuantity === warehouseQuantity && warehouseQuantity > 0;
+            return (projectQuantity === warehouseQuantity || projectQuantity < warehouseQuantity) && warehouseQuantity > 0;
           case '입고중':
             return projectQuantity > warehouseQuantity && warehouseQuantity > 0;
           case '입고 대기':
@@ -144,7 +170,13 @@ const ProjectLists = () => {
       setLoading(true);
       const token = localStorage.getItem('token');
       
-      const response = await fetch('/api/mj-project', {
+      // URL 파라미터 구성
+      const params = new URLSearchParams();
+      if (searchTerm) params.append('search', searchTerm);
+      params.append('page', currentPage);
+      params.append('limit', itemsPerPage);
+      
+      const response = await fetch(`/api/mj-project?${params.toString()}`, {
         headers: {
           'Authorization': `Bearer ${token}`
         }
@@ -160,7 +192,7 @@ const ProjectLists = () => {
         // 서버에서 이미 필터링된 프로젝트를 받음
         setProjects(data.projects);
         setFilteredProjects(data.projects);
-        setTotalItems(data.projects.length);
+        setTotalItems(data.pagination?.total || data.projects.length);
       } else {
         setError(data.message || '프로젝트 목록을 불러오는데 실패했습니다.');
       }
@@ -223,27 +255,60 @@ const ProjectLists = () => {
   };
 
   // URL 파라미터 업데이트 함수
-  const updateUrlParams = (page, limit) => {
+  const updateUrlParams = (updates) => {
     const newSearchParams = new URLSearchParams(searchParams);
-    if (page) {
-      newSearchParams.set('page', page.toString());
+    
+    // 페이지 관련 파라미터
+    if (updates.page !== undefined) {
+      newSearchParams.set('page', updates.page.toString());
     }
-    if (limit) {
-      newSearchParams.set('limit', limit.toString());
+    if (updates.limit !== undefined) {
+      newSearchParams.set('limit', updates.limit.toString());
     }
+    
+    // 필터 관련 파라미터
+    if (updates.search !== undefined) {
+      if (updates.search) {
+        newSearchParams.set('search', updates.search);
+      } else {
+        newSearchParams.delete('search');
+      }
+    }
+    if (updates.orderStatus !== undefined) {
+      if (updates.orderStatus !== 'all') {
+        newSearchParams.set('orderStatus', updates.orderStatus);
+      } else {
+        newSearchParams.delete('orderStatus');
+      }
+    }
+    if (updates.shippingStatus !== undefined) {
+      if (updates.shippingStatus !== 'all') {
+        newSearchParams.set('shippingStatus', updates.shippingStatus);
+      } else {
+        newSearchParams.delete('shippingStatus');
+      }
+    }
+    if (updates.warehouseStatus !== undefined) {
+      if (updates.warehouseStatus !== 'all') {
+        newSearchParams.set('warehouseStatus', updates.warehouseStatus);
+      } else {
+        newSearchParams.delete('warehouseStatus');
+      }
+    }
+    
     setSearchParams(newSearchParams);
   };
 
   // 페이징 관련 함수들
   const handlePageChange = (page) => {
     setCurrentPage(page);
-    updateUrlParams(page, null);
+    updateUrlParams({ page });
   };
 
   const handleItemsPerPageChange = (newItemsPerPage) => {
     setItemsPerPage(newItemsPerPage);
     setCurrentPage(1); // 페이지 크기가 변경되면 첫 페이지로 이동
-    updateUrlParams(1, newItemsPerPage);
+    updateUrlParams({ page: 1, limit: newItemsPerPage });
   };
 
   // 현재 페이지의 프로젝트들 계산
@@ -369,7 +434,13 @@ const ProjectLists = () => {
   const handleSearch = () => {
     // 검색 버튼 클릭 시 필터 적용 (이미 useEffect에서 자동으로 처리됨)
     setCurrentPage(1);
-    updateUrlParams(1, null);
+    updateUrlParams({ 
+      page: 1, 
+      search: searchTerm, 
+      orderStatus: filterOrderStatus, 
+      shippingStatus: filterShippingStatus, 
+      warehouseStatus: filterWarehouseStatus 
+    });
   };
 
   const handleClearFilters = () => {
@@ -378,7 +449,13 @@ const ProjectLists = () => {
     setFilterShippingStatus('all');
     setFilterWarehouseStatus('all');
     setCurrentPage(1);
-    updateUrlParams(1, null);
+    updateUrlParams({ 
+      page: 1, 
+      search: '', 
+      orderStatus: 'all', 
+      shippingStatus: 'all', 
+      warehouseStatus: 'all' 
+    });
   };
 
   // formatDate 함수는 utils/timezone에서 import하여 사용
@@ -413,9 +490,13 @@ const ProjectLists = () => {
     }
 
     const statusConfig = {
+      '출고 완료': { color: 'bg-green-100 text-green-800' },
       '정시출고': { color: 'bg-green-100 text-green-800' },
+      '정상 출고': { color: 'bg-green-100 text-green-800' },
       '조기출고': { color: 'bg-blue-100 text-blue-800' },
+      '조기 출고': { color: 'bg-blue-100 text-blue-800' },
       '출고연기': { color: 'bg-yellow-100 text-yellow-800' },
+      '출고 연기': { color: 'bg-yellow-100 text-yellow-800' },
       '출고 대기': { color: 'bg-orange-100 text-orange-800' }
     };
 
@@ -435,8 +516,8 @@ const ProjectLists = () => {
     
 
     
-    // 입고완료: mj_project.quantity == warehouse_entries.quantity
-    if (projectQuantity === warehouseQuantity && warehouseQuantity > 0) {
+    // 입고완료: mj_project.quantity <= warehouse_entries.quantity && warehouse_entries.quantity > 0
+    if ((projectQuantity === warehouseQuantity || projectQuantity < warehouseQuantity) && warehouseQuantity > 0) {
       return (
         <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
           입고완료
@@ -486,8 +567,8 @@ const ProjectLists = () => {
       );
     }
     
-    // 출고완료: remain_quantity가 0이고 export_quantity가 quantity와 같은 경우
-    if (remainQuantity === 0 && exportQuantity === projectQuantity && projectQuantity > 0) {
+    // 출고완료: remain_quantity가 0이고 export_quantity가 quantity와 같거나 더 큰 경우
+    if (remainQuantity === 0 && (exportQuantity === projectQuantity || exportQuantity > projectQuantity) && projectQuantity > 0) {
       return (
         <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
           출고완료
@@ -588,6 +669,7 @@ const ProjectLists = () => {
           setFilterWarehouseStatus={setFilterWarehouseStatus}
           onSearch={handleSearch}
           onClearFilters={handleClearFilters}
+          updateUrlParams={updateUrlParams}
         />
 
         {/* Projects Table */}

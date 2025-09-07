@@ -281,6 +281,7 @@ router.get('/', authMiddleware, async (req, res) => {
   try {
     const userId = req.user.userId;
     const isAdmin = req.user.isAdmin;
+    const { search, page = 1, limit = 10 } = req.query;
     
     let sql = `
       SELECT 
@@ -300,6 +301,7 @@ router.get('/', authMiddleware, async (req, res) => {
         p.entry_quantity,
         p.export_quantity,
         p.remain_quantity,
+        p.supplier_name,
         p.user_id,
         p.created_by,
         p.created_at,
@@ -315,17 +317,66 @@ router.get('/', authMiddleware, async (req, res) => {
     `;
     
     let params = [];
+    let whereConditions = [];
     
     // Admin이 아닌 경우 사용자별 필터링
     if (!isAdmin) {
-      // 일반 사용자는 user_id로만 검색 (자신이 소유한 프로젝트만 표시)
-      sql += ' WHERE p.user_id = ?';
+      whereConditions.push('p.user_id = ?');
       params.push(userId);
     }
     
-    sql += ' ORDER BY COALESCE(p.actual_order_date, p.created_at) ASC';
+    // 검색 조건 추가
+    if (search && search.trim()) {
+      const searchTerm = `%${search.trim()}%`;
+      whereConditions.push('(p.project_name LIKE ? OR p.supplier_name LIKE ?)');
+      params.push(searchTerm, searchTerm);
+    }
+    
+    // WHERE 조건 적용
+    if (whereConditions.length > 0) {
+      sql += ' WHERE ' + whereConditions.join(' AND ');
+    }
+    
+    sql += ' ORDER BY COALESCE(p.actual_order_date, p.created_at) DESC';
+    
+    // 페이지네이션 적용
+    const offset = (parseInt(page) - 1) * parseInt(limit);
+    sql += ' LIMIT ? OFFSET ?';
+    params.push(parseInt(limit), offset);
     
     const [projects] = await pool.execute(sql, params);
+    
+    // 총 개수 조회 (페이지네이션을 위한)
+    let countSql = `
+      SELECT COUNT(*) as total
+      FROM mj_project p
+      JOIN users u ON p.user_id = u.id
+      JOIN users c ON p.created_by = c.id
+    `;
+    
+    let countParams = [];
+    let countWhereConditions = [];
+    
+    // Admin이 아닌 경우 사용자별 필터링
+    if (!isAdmin) {
+      countWhereConditions.push('p.user_id = ?');
+      countParams.push(userId);
+    }
+    
+    // 검색 조건 추가
+    if (search && search.trim()) {
+      const searchTerm = `%${search.trim()}%`;
+      countWhereConditions.push('(p.project_name LIKE ? OR p.supplier_name LIKE ?)');
+      countParams.push(searchTerm, searchTerm);
+    }
+    
+    // WHERE 조건 적용
+    if (countWhereConditions.length > 0) {
+      countSql += ' WHERE ' + countWhereConditions.join(' AND ');
+    }
+    
+    const [countResult] = await pool.execute(countSql, countParams);
+    const totalCount = countResult[0].total;
     
     // 이미지 정보를 SearchModal과 동일한 방식으로 구성
     const projectsWithImages = projects.map(project => {
@@ -342,7 +393,16 @@ router.get('/', authMiddleware, async (req, res) => {
       return project;
     });
     
-    res.json({ success: true, projects: projectsWithImages });
+    res.json({ 
+      success: true, 
+      projects: projectsWithImages,
+      pagination: {
+        total: totalCount,
+        page: parseInt(page),
+        limit: parseInt(limit),
+        totalPages: Math.ceil(totalCount / parseInt(limit))
+      }
+    });
   } catch (error) {
     console.error('MJ 프로젝트 목록 조회 오류:', error);
     res.status(500).json({ success: false, error: '프로젝트 목록 조회 중 오류가 발생했습니다.' });

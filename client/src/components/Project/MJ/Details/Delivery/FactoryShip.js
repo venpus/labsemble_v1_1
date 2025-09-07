@@ -162,18 +162,6 @@ const FactoryShip = ({ project, onDateChange, handleMultipleUpdates, isAdmin, is
 
     // actual_factory_shipping_date가 설정되어 있으면 출고 완료 상태
     if (project?.actual_factory_shipping_date) {
-      // 예상일과 실제일 비교하여 상태 계산
-      const dateDiff = calculateDateDifference();
-      if (dateDiff) {
-        if (dateDiff.days === 0) {
-          return '정상 출고';
-        } else if (dateDiff.isEarly && dateDiff.days > 0) {
-          return '조기 출고';
-        } else if (dateDiff.isDelayed && dateDiff.days > 0) {
-          return '출고 연기';
-        }
-      }
-      // 날짜 차이 계산이 안 되는 경우 기본적으로 '출고 완료' 반환
       return '출고 완료';
     }
 

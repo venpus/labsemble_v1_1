@@ -133,7 +133,7 @@ router.post('/login', async (req, res) => {
     const token = jwt.sign(
       { userId: user.id, email: user.email, username: user.username, isAdmin: user.is_admin },
       jwtSecret,
-      { expiresIn: '24h' }
+      { expiresIn: '7d' }
     );
 
     console.log('✅ [auth] JWT 토큰 생성 완료:', { userId: user.id, username: user.username });
