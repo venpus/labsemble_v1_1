@@ -92,8 +92,8 @@ router.get('/versions', authMiddleware, async (req, res) => {
   }
 });
 
-// 앱 버전 체크 API
-router.get('/version-check', authMiddleware, async (req, res) => {
+// 앱 버전 체크 API (공개 접근)
+router.get('/version-check', async (req, res) => {
   try {
     const { versionCode, versionName } = req.query;
     
