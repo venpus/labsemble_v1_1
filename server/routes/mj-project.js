@@ -1581,6 +1581,7 @@ router.get('/calendar/order-events', authMiddleware, async (req, res) => {
         p.project_name,
         p.actual_order_date,
         p.expected_factory_shipping_date,
+        p.actual_factory_shipping_date,
         p.quantity,
         p.target_price,
         p.unit_price,
@@ -1650,7 +1651,8 @@ router.get('/calendar/order-events', authMiddleware, async (req, res) => {
         representativeImage: imageData, // 이미지 객체로 변경
         // 공장 납기 관련
         factoryDeliveryDays: deliveryDays,
-        expectedDeliveryDate: expectedDeliveryDate.toISOString().split('T')[0]
+        expectedDeliveryDate: expectedDeliveryDate.toISOString().split('T')[0],
+        actualFactoryShippingDate: project.actual_factory_shipping_date
       };
     });
 
