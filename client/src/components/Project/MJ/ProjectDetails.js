@@ -171,11 +171,18 @@ const ProjectDetails = () => {
     const urlParams = new URLSearchParams(window.location.search);
     const returnParams = urlParams.get('return');
     
+    console.log('🔙 [ProjectDetails] 목록으로 돌아가기:', {
+      returnParams,
+      currentUrl: window.location.href
+    });
+    
     if (returnParams) {
       // return 파라미터가 있으면 해당 페이지로 이동
+      console.log('🔙 [ProjectDetails] return 파라미터로 이동:', `/dashboard/mj-projects?${returnParams}`);
       navigate(`/dashboard/mj-projects?${returnParams}`);
     } else {
       // return 파라미터가 없으면 기본 목록으로 이동
+      console.log('🔙 [ProjectDetails] 기본 목록으로 이동');
       navigate('/dashboard/mj-projects');
     }
   };
@@ -397,25 +404,16 @@ const ProjectDetails = () => {
                             alt={`프로젝트 이미지 ${index + 1}`}
                             className="w-full h-32 object-cover rounded-lg border border-gray-200 shadow-sm hover:shadow-md transition-shadow cursor-pointer"
                             onError={(e) => {
-                              console.log('❌ [ProjectDetails] 이미지 로드 실패:', {
-                                filename: image.file_name,
-                                url: image.url,
-                                fallback_url: image.fallback_url
-                              });
-                              
                               // 이미지 로드 실패 시 대체 URL 시도
                               if (image.fallback_url) {
-                                console.log('🔄 [ProjectDetails] fallback URL 시도:', image.fallback_url);
                                 e.target.src = image.fallback_url;
                               } else if (image.file_name) {
                                 const fallbackUrl = `/uploads/project/mj/registImage/${image.file_name}`;
-                                console.log('🔄 [ProjectDetails] 클라이언트 생성 fallback URL 시도:', fallbackUrl);
                                 e.target.src = fallbackUrl;
                               }
                               
                               // 대체 URL도 실패하면 기본 아이콘 표시
                               e.target.onerror = () => {
-                                console.log('❌ [ProjectDetails] 모든 이미지 URL 시도 실패, 기본 아이콘 표시');
                                 e.target.style.display = 'none';
                                 // 기본 아이콘 표시 로직 추가
                               };

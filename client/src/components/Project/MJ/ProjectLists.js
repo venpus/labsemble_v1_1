@@ -33,6 +33,9 @@ const ProjectLists = () => {
     return limit ? parseInt(limit, 10) || 10 : 10;
   };
   
+  // itemsPerPage 값을 메모이제이션
+  const itemsPerPage = getItemsPerPage();
+  
   // itemsPerPage는 URL 파라미터에서 직접 읽어서 사용
   const [totalItems, setTotalItems] = useState(0);
   const [filteredProjects, setFilteredProjects] = useState([]);
@@ -40,7 +43,7 @@ const ProjectLists = () => {
   const [filterShippingStatus, setFilterShippingStatus] = useState('all');
   const [filterWarehouseStatus, setFilterWarehouseStatus] = useState('all');
 
-  // URL 파라미터에서 상태 복원
+  // URL 파라미터에서 상태 복원 및 API 호출
   useEffect(() => {
     const page = searchParams.get('page');
     const limit = searchParams.get('limit');
@@ -49,7 +52,7 @@ const ProjectLists = () => {
     const shippingStatus = searchParams.get('shippingStatus');
     const warehouseStatus = searchParams.get('warehouseStatus');
     
-    console.log('🔄 [ProjectLists] URL 파라미터 복원:', { 
+    console.log('🔄 [ProjectLists] URL 파라미터 복원 시작:', { 
       page, limit, search, orderStatus, shippingStatus, warehouseStatus, 
       searchParams: searchParams.toString()
     });
@@ -61,7 +64,7 @@ const ProjectLists = () => {
       setCurrentPage(pageNum);
     }
     
-    // limit 복원 - getItemsPerPage() 함수에서 자동으로 처리됨
+    // limit 복원 - itemsPerPage는 자동으로 처리됨
     if (limit) {
       const limitNum = parseInt(limit, 10) || 10;
       console.log('📊 [ProjectLists] 페이지당 항목 수 복원:', limitNum);
@@ -72,28 +75,78 @@ const ProjectLists = () => {
       console.log('🔍 [ProjectLists] 검색어 복원:', search);
       setSearchTerm(search);
       setAppliedSearchTerm(search);
+    } else {
+      // 검색어가 URL에 없으면 초기화
+      console.log('🔍 [ProjectLists] 검색어 초기화');
+      setSearchTerm('');
+      setAppliedSearchTerm('');
     }
     
     // 필터 복원
     if (orderStatus !== null) {
       console.log('📋 [ProjectLists] 발주상태 필터 복원:', orderStatus);
       setFilterOrderStatus(orderStatus);
+    } else {
+      setFilterOrderStatus('all');
     }
     if (shippingStatus !== null) {
       console.log('🚚 [ProjectLists] 공장출고 필터 복원:', shippingStatus);
       setFilterShippingStatus(shippingStatus);
+    } else {
+      setFilterShippingStatus('all');
     }
     if (warehouseStatus !== null) {
       console.log('📦 [ProjectLists] 입고상태 필터 복원:', warehouseStatus);
       setFilterWarehouseStatus(warehouseStatus);
+    } else {
+      setFilterWarehouseStatus('all');
     }
-  }, [searchParams]); // searchParams가 변경될 때마다 실행
-
-  useEffect(() => {
+    
+    console.log('🔄 [ProjectLists] URL 파라미터 복원 완료');
+    
+    // 상태 복원 완료 후 API 호출
     if (isAuthenticated) {
-      fetchProjects();
+      const timeoutId = setTimeout(() => {
+        console.log('🚀 [ProjectLists] 상태 복원 후 API 호출:', {
+          search,
+          page: page || '1',
+          limit: limit || '10',
+          orderStatus: orderStatus || 'all',
+          shippingStatus: shippingStatus || 'all',
+          warehouseStatus: warehouseStatus || 'all'
+        });
+        // URL 파라미터를 직접 사용하여 API 호출
+        fetchProjectsWithParams({
+          search: search || '',
+          page: page || '1',
+          limit: limit || '10',
+          orderStatus: orderStatus || 'all',
+          shippingStatus: shippingStatus || 'all',
+          warehouseStatus: warehouseStatus || 'all'
+        });
+      }, 100); // 100ms 지연으로 상태 업데이트 완료 대기
+      
+      return () => clearTimeout(timeoutId);
     }
-  }, [isAuthenticated, appliedSearchTerm, currentPage, getItemsPerPage(), filterOrderStatus, filterShippingStatus, filterWarehouseStatus]);
+  }, [searchParams, isAuthenticated]); // searchParams와 isAuthenticated 변경 시에만 실행
+
+  // appliedSearchTerm이 변경될 때마다 API 호출 (검색 실행 시에만)
+  // 주석 처리: 상태 복원 시 fetchProjectsWithParams가 처리하므로 중복 방지
+  // useEffect(() => {
+  //   if (isAuthenticated && appliedSearchTerm !== undefined && appliedSearchTerm !== '') {
+  //     console.log('🔍 [ProjectLists] appliedSearchTerm 변경으로 API 호출:', {
+  //       appliedSearchTerm,
+  //       currentPage,
+  //       itemsPerPage,
+  //       filterOrderStatus,
+  //       filterShippingStatus,
+  //       filterWarehouseStatus
+  //     });
+  //     fetchProjects();
+  //   }
+  // }, [appliedSearchTerm, currentPage, itemsPerPage, filterOrderStatus, filterShippingStatus, filterWarehouseStatus, isAuthenticated]);
+
+  // 기존 API 호출 useEffect는 제거됨 - 상태 복원 후 API 호출로 대체
 
   // 검색어가 변경되면 첫 페이지로 이동
   useEffect(() => {
@@ -108,7 +161,7 @@ const ProjectLists = () => {
     if (!page) {
       setCurrentPage(1);
     }
-  }, [getItemsPerPage(), searchParams]);
+  }, [itemsPerPage, searchParams]);
 
 
   // 서버에서 이미 필터링된 데이터를 받으므로 클라이언트 사이드 필터링 비활성화
@@ -126,6 +179,13 @@ const ProjectLists = () => {
       search: searchTerm,
       page: 1 
     });
+    // 검색 실행 후 즉시 API 호출
+    setTimeout(() => {
+      if (isAuthenticated) {
+        console.log('🔍 [ProjectLists] 검색 실행 후 API 호출');
+        fetchProjects();
+      }
+    }, 100);
   };
 
   // 필터 초기화 함수
@@ -221,7 +281,7 @@ const ProjectLists = () => {
       if (filterShippingStatus !== 'all') params.append('shippingStatus', filterShippingStatus);
       if (filterWarehouseStatus !== 'all') params.append('warehouseStatus', filterWarehouseStatus);
       params.append('page', currentPage);
-      params.append('limit', getItemsPerPage());
+      params.append('limit', itemsPerPage);
       
       console.log('🔍 [ProjectLists] API 요청 파라미터:', {
         appliedSearchTerm,
@@ -229,7 +289,7 @@ const ProjectLists = () => {
         filterShippingStatus,
         filterWarehouseStatus,
         currentPage,
-        itemsPerPage: getItemsPerPage(),
+        itemsPerPage: itemsPerPage,
         url: `/api/mj-project?${params.toString()}`
       });
       
@@ -254,7 +314,61 @@ const ProjectLists = () => {
           projectsCount: data.projects.length,
           totalItems: data.pagination?.total || data.projects.length,
           currentPage: currentPage,
-          itemsPerPage: getItemsPerPage(),
+          itemsPerPage: itemsPerPage,
+          pagination: data.pagination
+        });
+      } else {
+        setError(data.message || '프로젝트 목록을 불러오는데 실패했습니다.');
+      }
+    } catch (error) {
+      setError(error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // URL 파라미터를 직접 사용하는 API 호출 함수
+  const fetchProjectsWithParams = async (params) => {
+    try {
+      setLoading(true);
+      const token = localStorage.getItem('token');
+      
+      // URL 파라미터 구성
+      const urlParams = new URLSearchParams();
+      if (params.search) urlParams.append('search', params.search);
+      if (params.orderStatus !== 'all') urlParams.append('orderStatus', params.orderStatus);
+      if (params.shippingStatus !== 'all') urlParams.append('shippingStatus', params.shippingStatus);
+      if (params.warehouseStatus !== 'all') urlParams.append('warehouseStatus', params.warehouseStatus);
+      urlParams.append('page', params.page);
+      urlParams.append('limit', params.limit);
+      
+      console.log('🔍 [ProjectLists] fetchProjectsWithParams API 요청 파라미터:', {
+        ...params,
+        url: `/api/mj-project?${urlParams.toString()}`
+      });
+      
+      const response = await fetch(`/api/mj-project?${urlParams.toString()}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error('프로젝트 목록을 불러오는데 실패했습니다.');
+      }
+
+      const data = await response.json();
+      
+      if (data.success) {
+        // 서버에서 이미 필터링된 프로젝트를 받음
+        setProjects(data.projects);
+        setFilteredProjects(data.projects);
+        setTotalItems(data.pagination?.total || data.projects.length);
+        console.log('🔍 [ProjectLists] fetchProjectsWithParams 서버에서 받은 프로젝트:', {
+          projectsCount: data.projects.length,
+          totalItems: data.pagination?.total || data.projects.length,
+          currentPage: params.page,
+          itemsPerPage: params.limit,
           pagination: data.pagination
         });
       } else {
@@ -271,17 +385,21 @@ const ProjectLists = () => {
     // 현재 모든 상태를 URL에 포함하여 상세보기로 이동
     const returnParams = new URLSearchParams();
     returnParams.set('page', currentPage.toString());
-    returnParams.set('limit', getItemsPerPage().toString());
+    returnParams.set('limit', itemsPerPage.toString());
     
-    // 검색 조건들도 포함
-    if (appliedSearchTerm) returnParams.set('search', appliedSearchTerm);
+    // 검색 조건들도 포함 (appliedSearchTerm이 있으면 사용, 없으면 searchTerm 사용)
+    const currentSearchTerm = appliedSearchTerm || searchTerm;
+    if (currentSearchTerm) returnParams.set('search', currentSearchTerm);
     if (filterOrderStatus !== 'all') returnParams.set('orderStatus', filterOrderStatus);
     if (filterShippingStatus !== 'all') returnParams.set('shippingStatus', filterShippingStatus);
     if (filterWarehouseStatus !== 'all') returnParams.set('warehouseStatus', filterWarehouseStatus);
     
     console.log('🔗 [ProjectLists] 프로젝트 상세보기로 이동:', {
       projectId,
-      returnParams: returnParams.toString()
+      returnParams: returnParams.toString(),
+      currentSearchTerm,
+      appliedSearchTerm,
+      searchTerm
     });
     
     navigate(`/dashboard/mj-projects/${projectId}?return=${encodeURIComponent(returnParams.toString())}`);
@@ -289,10 +407,16 @@ const ProjectLists = () => {
 
   const handleEditProject = (projectId) => {
     // 편집 페이지로 이동할 때도 현재 페이지 정보 포함
-    const currentUrl = new URL(window.location);
     const returnParams = new URLSearchParams();
     returnParams.set('page', currentPage.toString());
-    returnParams.set('limit', getItemsPerPage().toString());
+    returnParams.set('limit', itemsPerPage.toString());
+    
+    // 검색 조건들도 포함 (appliedSearchTerm이 있으면 사용, 없으면 searchTerm 사용)
+    const currentSearchTerm = appliedSearchTerm || searchTerm;
+    if (currentSearchTerm) returnParams.set('search', currentSearchTerm);
+    if (filterOrderStatus !== 'all') returnParams.set('orderStatus', filterOrderStatus);
+    if (filterShippingStatus !== 'all') returnParams.set('shippingStatus', filterShippingStatus);
+    if (filterWarehouseStatus !== 'all') returnParams.set('warehouseStatus', filterWarehouseStatus);
     
     navigate(`/dashboard/mj-projects/${projectId}/edit?return=${encodeURIComponent(returnParams.toString())}`);
   };
@@ -382,7 +506,7 @@ const ProjectLists = () => {
 
   const handleItemsPerPageChange = (newItemsPerPage) => {
     console.log('📊 [ProjectLists] 페이지당 항목 수 변경:', {
-      from: getItemsPerPage(),
+      from: itemsPerPage,
       to: newItemsPerPage,
       currentPage: currentPage
     });
@@ -411,7 +535,7 @@ const ProjectLists = () => {
   // };
 
   // 총 페이지 수 계산 (서버에서 받은 pagination 정보 사용)
-  const totalPages = Math.ceil(totalItems / getItemsPerPage());
+  const totalPages = Math.ceil(totalItems / itemsPerPage);
 
   // 페이지 번호 배열 생성 (최대 5개씩 표시)
   const getPageNumbers = () => {
@@ -442,7 +566,7 @@ const ProjectLists = () => {
           <div className="flex items-center space-x-2">
             <span className="text-sm text-gray-700">페이지당 표시:</span>
             <select
-              value={getItemsPerPage()}
+              value={itemsPerPage}
               onChange={(e) => handleItemsPerPageChange(Number(e.target.value))}
               className="border border-gray-300 rounded-md px-3 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
             >
@@ -457,7 +581,7 @@ const ProjectLists = () => {
           <div className="text-sm text-gray-700">
             {totalItems > 0 ? (
               <>
-                {((currentPage - 1) * getItemsPerPage()) + 1} - {Math.min(currentPage * getItemsPerPage(), totalItems)} / {totalItems}개
+                {((currentPage - 1) * itemsPerPage) + 1} - {Math.min(currentPage * itemsPerPage, totalItems)} / {totalItems}개
                 <span className="ml-2 text-gray-500">
                   (현재 페이지: {projects.length}개 표시)
                 </span>
@@ -825,25 +949,16 @@ const ProjectLists = () => {
                               alt={`${project.project_name} 대표이미지`}
                               className="w-16 h-16 object-cover rounded-lg border border-gray-200 shadow-sm cursor-pointer"
                               onError={(e) => {
-                                console.log('❌ [ProjectLists] 이미지 로드 실패:', {
-                                  filename: project.representative_image.filename,
-                                  url: project.representative_image.url,
-                                  fallback_url: project.representative_image.fallback_url
-                                });
-                                
                                 // 이미지 로드 실패 시 대체 URL 시도
                                 if (project.representative_image.fallback_url) {
-                                  console.log('🔄 [ProjectLists] fallback URL 시도:', project.representative_image.fallback_url);
                                   e.target.src = project.representative_image.fallback_url;
                                 } else if (project.representative_image.filename) {
                                   const fallbackUrl = `/uploads/project/mj/registImage/${project.representative_image.filename}`;
-                                  console.log('🔄 [ProjectLists] 클라이언트 생성 fallback URL 시도:', fallbackUrl);
                                   e.target.src = fallbackUrl;
                                 }
                                 
                                 // 대체 URL도 실패하면 기본 아이콘 표시
                                 e.target.onerror = () => {
-                                  console.log('❌ [ProjectLists] 모든 이미지 URL 시도 실패, 기본 아이콘 표시');
                                   e.target.style.display = 'none';
                                   e.target.nextSibling.style.display = 'flex';
                                 };

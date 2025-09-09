@@ -1317,21 +1317,12 @@ const MakePackingList = () => {
                               alt={product.productName || '상품 이미지'}
                               className="h-12 w-12 rounded-lg object-cover border border-gray-200"
                               onError={(e) => {
-                                console.log('❌ [MakePackingList] 테이블 이미지 로드 실패:', {
-                                  url: product.firstImage.url,
-                                  fileName: product.firstImage.stored_filename,
-                                  filePath: product.firstImage.file_path,
-                                  error: '이미지 로드 실패'
-                                });
                                 // 이미지 로드 실패 시 기본 아이콘 표시
                                 e.target.style.display = 'none';
                                 e.target.nextSibling.style.display = 'flex';
                               }}
                               onLoad={() => {
-                                console.log('✅ [MakePackingList] 테이블 이미지 로드 성공:', {
-                                  url: product.firstImage.url,
-                                  fileName: product.firstImage.stored_filename
-                                });
+                                // 이미지 로드 성공
                               }}
                             />
                           ) : null}

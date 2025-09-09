@@ -79,21 +79,21 @@ const Footer = () => {
               <Mail className="w-5 h-5 text-blue-500" />
               <div>
                 <p className="text-sm text-gray-400">이메일</p>
-                <p className="text-white">support@manufacturing.com</p>
+                <p className="text-white">venpus@inventio-tech.com</p>
               </div>
             </div>
             <div className="flex items-center space-x-3">
               <Phone className="w-5 h-5 text-blue-500" />
               <div>
                 <p className="text-sm text-gray-400">전화번호</p>
-                <p className="text-white">+82-2-1234-5678</p>
+                <p className="text-white">+82-10-2514-2795</p>
               </div>
             </div>
             <div className="flex items-center space-x-3">
               <MapPin className="w-5 h-5 text-blue-500" />
               <div>
                 <p className="text-sm text-gray-400">주소</p>
-                <p className="text-white">서울특별시 강남구 테헤란로 123</p>
+                <p className="text-white">서울특별시 광진구 뚝섬로 43길 28</p>
               </div>
             </div>
           </div>
@@ -102,7 +102,7 @@ const Footer = () => {
         {/* Bottom Bar */}
         <div className="border-t border-gray-800 mt-8 pt-8 flex flex-col md:flex-row justify-between items-center">
           <p className="text-gray-400 text-sm">
-            © 2024 LABSEMBLE. All rights reserved.
+            © 2025 LABSEMBLE. All rights reserved.
           </p>
           <div className="flex space-x-6 mt-4 md:mt-0">
             <span className="text-gray-400 text-sm">개인정보처리방침</span>

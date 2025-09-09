@@ -37,12 +37,12 @@ const ProjectSearchModal = ({ isOpen, onClose, onSelectProject }) => {
         console.log('🔍 [ProjectSearchModal] API 응답 데이터:', JSON.stringify(data, null, 2));
         console.log('🔍 [ProjectSearchModal] products 배열:', data.products);
         if (data.products && data.products.length > 0) {
-          console.log('🔍 [ProjectSearchModal] 첫 번째 프로젝트 상세:', JSON.stringify(data.products[0], null, 2));
-          if (data.products[0].first_image) {
-            console.log('🔍 [ProjectSearchModal] 이미지 데이터:', JSON.stringify(data.products[0].first_image, null, 2));
-          } else {
-            console.log('❌ [ProjectSearchModal] 이미지 데이터가 없습니다');
-          }
+        // 프로젝트 상세 데이터 처리
+        if (data.products[0].first_image) {
+          // 이미지 데이터 있음
+        } else {
+          // 이미지 데이터 없음
+        }
         }
         setProjects(data.products || []);
       } else {
@@ -65,7 +65,6 @@ const ProjectSearchModal = ({ isOpen, onClose, onSelectProject }) => {
   // 프로젝트 선택 처리
   const handleSelectProject = (project) => {
     console.log('🔍 [ProjectSearchModal] 선택된 프로젝트:', project);
-    console.log('🔍 [ProjectSearchModal] 이미지 정보:', project.first_image);
     
     onSelectProject({
       id: project.project_id,
@@ -162,36 +161,22 @@ const ProjectSearchModal = ({ isOpen, onClose, onSelectProject }) => {
                           alt={project.project_name || '프로젝트 이미지'}
                           className="w-full h-32 object-contain rounded-lg border border-gray-200 bg-gray-50"
                           onError={(e) => {
-                            console.log('❌ [ProjectSearchModal] 이미지 로드 실패:', {
-                              fileName: project.first_image.stored_filename,
-                              fullUrl: project.first_image.url,
-                              project: project.project_name,
-                              projectData: project
-                            });
-                            
                             // 이미지 로드 실패 시 대체 URL 시도
                             if (project.first_image.fallback_url) {
-                              console.log('🔄 [ProjectSearchModal] 서버 제공 fallback URL 시도:', project.first_image.fallback_url);
                               e.target.src = project.first_image.fallback_url;
                             } else if (project.first_image.stored_filename) {
                               const fallbackUrl = `/uploads/project/mj/registImage/${project.first_image.stored_filename}`;
-                              console.log('🔄 [ProjectSearchModal] 클라이언트 생성 fallback URL 시도:', fallbackUrl);
                               e.target.src = fallbackUrl;
                             }
                             
                             // 대체 URL도 실패하면 기본 아이콘 표시
                             e.target.onerror = () => {
-                              console.log('❌ [ProjectSearchModal] 모든 이미지 URL 시도 실패, 기본 아이콘 표시');
                               e.target.style.display = 'none';
                               e.target.nextSibling.style.display = 'flex';
                             };
                           }}
                           onLoad={() => {
-                            console.log('✅ [ProjectSearchModal] 이미지 로드 성공:', {
-                              fileName: project.first_image.stored_filename,
-                              fullUrl: project.first_image.url,
-                              project: project.project_name
-                            });
+                            // 이미지 로드 성공
                           }}
                         />
                       ) : null}

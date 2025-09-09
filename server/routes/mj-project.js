@@ -2398,6 +2398,359 @@ router.get('/calendar/client-events', authMiddleware, async (req, res) => {
   }
 });
 
+// 모바일 전용 프로젝트 등록 API (확장된 필드 포함)
+router.post('/mobile/register', authMiddleware, handleMulterError, async (req, res) => {
+  const connection = await pool.getConnection();
+  
+  try {
+    console.log('📱 [mobile-project] 모바일 프로젝트 등록 시작:', {
+      body: req.body,
+      files: req.files ? req.files.length : 0,
+      user: req.user
+    });
+    
+    await connection.beginTransaction();
+    
+    const { 
+      projectName, 
+      description, 
+      quantity, 
+      targetPrice, 
+      unitPrice,
+      supplierName,
+      factoryDeliveryDays,
+      factoryShippingCost,
+      packingMethod,
+      referenceLinks, 
+      selectedUserId,
+      feeRate = 10.0  // 기본값 10%
+    } = req.body;
+    
+    // admin 사용자의 경우 선택된 사용자 ID 사용, 그렇지 않으면 현재 로그인한 사용자 ID 사용
+    let projectOwnerId = req.user?.userId;
+    let projectCreatorId = req.user?.userId;
+    let isAdminUser = req.user?.isAdmin;
+    
+    console.log('👤 [mobile-project] 사용자 정보:', {
+      projectOwnerId,
+      projectCreatorId,
+      isAdminUser,
+      selectedUserId
+    });
+    
+    // JWT에서 admin 권한이 제대로 전달되지 않은 경우, 데이터베이스에서 직접 확인
+    if (isAdminUser === undefined || isAdminUser === null) {
+      try {
+        const [adminCheck] = await connection.execute(
+          'SELECT is_admin FROM users WHERE id = ?',
+          [req.user.userId]
+        );
+        if (adminCheck.length > 0) {
+          isAdminUser = adminCheck[0].is_admin;
+          console.log('🔍 [mobile-project] DB에서 admin 권한 확인:', isAdminUser);
+        }
+      } catch (error) {
+        console.error('❌ [mobile-project] admin 권한 확인 오류:', error);
+        isAdminUser = false;
+      }
+    }
+    
+    if (selectedUserId && isAdminUser) {
+      projectOwnerId = parseInt(selectedUserId);
+      projectCreatorId = req.user.userId;
+      console.log('👑 [mobile-project] Admin 사용자로 프로젝트 등록:', { projectOwnerId, projectCreatorId });
+    }
+    
+    // referenceLinks가 문자열인 경우 JSON으로 파싱
+    let parsedReferenceLinks = [];
+    if (referenceLinks) {
+      try {
+        parsedReferenceLinks = typeof referenceLinks === 'string' 
+          ? JSON.parse(referenceLinks) 
+          : referenceLinks;
+        console.log('🔗 [mobile-project] 참고링크 파싱 완료:', parsedReferenceLinks);
+      } catch (error) {
+        console.error('❌ [mobile-project] 참고링크 파싱 오류:', error);
+        parsedReferenceLinks = [];
+      }
+    }
+    
+    if (!projectOwnerId) {
+      console.error('❌ [mobile-project] 사용자 인증 실패: projectOwnerId 없음');
+      return res.status(401).json({ error: '사용자 인증이 필요합니다.' });
+    }
+    
+    // 필수 필드 검증
+    if (!projectName || !quantity) {
+      console.error('❌ [mobile-project] 필수 필드 누락:', { projectName, quantity });
+      return res.status(400).json({ error: '프로젝트명과 수량은 필수입니다.' });
+    }
+    
+    // 숫자 타입 변환 및 검증
+    const numericQuantity = parseInt(quantity) || 0;
+    const numericTargetPrice = parseFloat(targetPrice) || null;
+    const numericUnitPrice = parseFloat(unitPrice) || null;
+    const numericFactoryDeliveryDays = parseInt(factoryDeliveryDays) || null;
+    const numericFactoryShippingCost = parseFloat(factoryShippingCost) || null;
+    const numericFeeRate = parseFloat(feeRate) || 10.0;  // 기본값 10%
+    
+    if (numericQuantity <= 0) {
+      return res.status(400).json({ error: '수량은 0보다 큰 값이어야 합니다.' });
+    }
+    
+    console.log('✅ [mobile-project] 프로젝트 등록 데이터 검증 완료:', {
+      projectName,
+      description,
+      quantity: numericQuantity,
+      targetPrice: numericTargetPrice,
+      unitPrice: numericUnitPrice,
+      supplierName,
+      factoryDeliveryDays: numericFactoryDeliveryDays,
+      factoryShippingCost: numericFactoryShippingCost,
+      packingMethod,
+      feeRate: numericFeeRate,
+      projectOwnerId,
+      projectCreatorId
+    });
+    
+    // 🔢 자동 계산 로직
+    console.log('🧮 [mobile-project] 자동 계산 시작...');
+    
+    // 1. 총계 계산 (단가 × 수량)
+    const subtotal = (numericUnitPrice || 0) * numericQuantity;
+    console.log('💰 [mobile-project] 총계 계산:', {
+      unitPrice: numericUnitPrice,
+      quantity: numericQuantity,
+      subtotal: subtotal
+    });
+    
+    // 2. 수수료 계산 (총계 × 수수료율)
+    const fee = (subtotal * numericFeeRate) / 100;
+    console.log('💸 [mobile-project] 수수료 계산:', {
+      subtotal: subtotal,
+      feeRate: numericFeeRate,
+      fee: fee
+    });
+    
+    // 3. 추가 비용 총합 계산 (참고링크에서 추가비용 추출)
+    let totalAdditionalCosts = 0;
+    if (parsedReferenceLinks && parsedReferenceLinks.length > 0) {
+      totalAdditionalCosts = parsedReferenceLinks.reduce((sum, item) => {
+        return sum + (parseFloat(item.cost) || 0);
+      }, 0);
+    }
+    console.log('📊 [mobile-project] 추가 비용 계산:', {
+      referenceLinks: parsedReferenceLinks,
+      totalAdditionalCosts: totalAdditionalCosts
+    });
+    
+    // 4. 잔금 계산 (수수료 + 공장배송비 + 추가비용)
+    const balanceAmount = fee + (numericFactoryShippingCost || 0) + totalAdditionalCosts;
+    console.log('💳 [mobile-project] 잔금 계산:', {
+      fee: fee,
+      factoryShippingCost: numericFactoryShippingCost || 0,
+      additionalCosts: totalAdditionalCosts,
+      balanceAmount: balanceAmount
+    });
+    
+    // 5. 최종 금액 계산 (총계 + 공장배송비 + 수수료 + 추가비용)
+    const totalAmount = subtotal + (numericFactoryShippingCost || 0) + fee + totalAdditionalCosts;
+    console.log('🎯 [mobile-project] 최종 금액 계산:', {
+      subtotal: subtotal,
+      factoryShippingCost: numericFactoryShippingCost || 0,
+      fee: fee,
+      additionalCosts: totalAdditionalCosts,
+      totalAmount: totalAmount
+    });
+    
+    // 6. 선금 계산 (총계와 동일)
+    const advancePayment = subtotal;
+    console.log('💵 [mobile-project] 선금 계산:', {
+      advancePayment: advancePayment
+    });
+    
+    console.log('✅ [mobile-project] 자동 계산 완료:', {
+      subtotal,
+      fee,
+      balanceAmount,
+      totalAmount,
+      advancePayment,
+      totalAdditionalCosts
+    });
+    
+    // 1. MJ 프로젝트 생성 (확장된 필드 + 계산된 값들 포함)
+    const [projectResult] = await connection.execute(
+      `INSERT INTO mj_project (
+        project_name, description, quantity, target_price, unit_price,
+        supplier_name, factory_delivery_days, factory_shipping_cost, packing_method,
+        user_id, created_by, reference_links, fee_rate,
+        subtotal, fee, balance_amount, total_amount, advance_payment
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        projectName, 
+        description || null, 
+        numericQuantity, 
+        numericTargetPrice, 
+        numericUnitPrice,
+        supplierName || null,
+        numericFactoryDeliveryDays,
+        numericFactoryShippingCost,
+        packingMethod || null,
+        projectOwnerId, 
+        projectCreatorId,
+        parsedReferenceLinks.length > 0 ? JSON.stringify(parsedReferenceLinks) : null,
+        numericFeeRate,
+        subtotal,
+        fee,
+        balanceAmount,
+        totalAmount,
+        advancePayment
+      ]
+    );
+    
+    const projectId = projectResult.insertId;
+    console.log('✅ [mobile-project] 프로젝트 생성 완료:', { projectId });
+    
+    // 2. 이미지 파일 처리
+    if (req.files && req.files.length > 0) {
+      console.log(`📸 [mobile-project] 이미지 처리 시작: ${req.files.length}개 파일`);
+      
+      for (const file of req.files) {
+        try {
+          const [imageResult] = await connection.execute(
+            'INSERT INTO mj_project_images (project_id, file_name, file_path, original_name) VALUES (?, ?, ?, ?)',
+            [projectId, file.filename, file.path, file.originalname]
+          );
+          console.log('✅ [mobile-project] 이미지 저장 완료:', {
+            imageId: imageResult.insertId,
+            filename: file.filename,
+            originalName: file.originalname
+          });
+        } catch (imageError) {
+          console.error('❌ [mobile-project] 이미지 저장 실패:', imageError);
+          // 이미지 저장 실패해도 프로젝트는 계속 진행
+        }
+      }
+    }
+    
+    await connection.commit();
+    console.log('✅ [mobile-project] 프로젝트 등록 완료:', { projectId });
+    
+    res.json({
+      success: true,
+      message: '모바일 프로젝트가 성공적으로 등록되었습니다.',
+      projectId: projectId,
+      data: {
+        id: projectId,
+        projectName,
+        description,
+        quantity: numericQuantity,
+        targetPrice: numericTargetPrice,
+        unitPrice: numericUnitPrice,
+        supplierName,
+        factoryDeliveryDays: numericFactoryDeliveryDays,
+        factoryShippingCost: numericFactoryShippingCost,
+        packingMethod,
+        feeRate: numericFeeRate,
+        referenceLinks: parsedReferenceLinks,
+        imageCount: req.files ? req.files.length : 0,
+        // 🔢 자동 계산된 값들
+        calculatedValues: {
+          subtotal: subtotal,
+          fee: fee,
+          balanceAmount: balanceAmount,
+          totalAmount: totalAmount,
+          advancePayment: advancePayment,
+          totalAdditionalCosts: totalAdditionalCosts
+        }
+      }
+    });
+    
+  } catch (error) {
+    await connection.rollback();
+    console.error('❌ [mobile-project] 프로젝트 등록 오류:', {
+      message: error.message,
+      stack: error.stack,
+      code: error.code,
+      errno: error.errno
+    });
+    res.status(500).json({ 
+      error: '모바일 프로젝트 등록 중 오류가 발생했습니다.',
+      details: process.env.NODE_ENV === 'development' ? error.message : '내부 서버 오류'
+    });
+  } finally {
+    connection.release();
+  }
+});
+
+// 모바일 전용 자동 상품명 생성 API
+router.get('/mobile/generate-product-name', authMiddleware, async (req, res) => {
+  const connection = await pool.getConnection();
+  
+  try {
+    console.log('📱 [mobile-generate-name] 자동 상품명 생성 요청:', {
+      user: req.user
+    });
+    
+    // 현재 한국 시간으로 오늘 날짜 계산
+    const now = new Date();
+    const kstOffset = 9 * 60; // UTC+9 (한국 시간)
+    const kstTime = new Date(now.getTime() + (kstOffset * 60 * 1000));
+    
+    // YYMMDD 형식으로 날짜 생성
+    const year = kstTime.getFullYear().toString().slice(-2); // YY
+    const month = (kstTime.getMonth() + 1).toString().padStart(2, '0'); // MM
+    const day = kstTime.getDate().toString().padStart(2, '0'); // DD
+    const dateString = `${year}${month}${day}`;
+    
+    console.log('📅 [mobile-generate-name] 오늘 날짜:', dateString);
+    
+    // 오늘 날짜에 등록된 프로젝트 개수 조회
+    const [countResult] = await connection.execute(
+      `SELECT COUNT(*) as count 
+       FROM mj_project 
+       WHERE DATE(created_at) = CURDATE()`,
+      []
+    );
+    
+    const todayCount = parseInt(countResult[0].count) || 0;
+    const nextNumber = todayCount + 1;
+    
+    // YYMMDD#N 형식으로 상품명 생성 (숫자를 명시적으로 숫자로 처리)
+    const generatedProductName = `${dateString}#${nextNumber}`;
+    
+    console.log('✅ [mobile-generate-name] 상품명 생성 완료:', {
+      dateString,
+      todayCount,
+      nextNumber,
+      nextNumberType: typeof nextNumber,
+      generatedProductName
+    });
+    
+    res.json({
+      success: true,
+      data: {
+        productName: generatedProductName,
+        dateString: dateString,
+        todayCount: todayCount,
+        nextNumber: nextNumber
+      }
+    });
+    
+  } catch (error) {
+    console.error('❌ [mobile-generate-name] 상품명 생성 오류:', {
+      message: error.message,
+      stack: error.stack
+    });
+    res.status(500).json({ 
+      error: '상품명 생성 중 오류가 발생했습니다.',
+      details: process.env.NODE_ENV === 'development' ? error.message : '내부 서버 오류'
+    });
+  } finally {
+    connection.release();
+  }
+});
+
 // 등록된 라우트 확인
 console.log('🔍 [DEBUG] mj-project 라우트 등록 완료');
 console.log('🔍 [DEBUG] 등록된 라우트들:');

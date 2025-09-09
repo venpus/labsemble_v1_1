@@ -23,9 +23,13 @@ import { versionInfo } from '../../config/version';
 const Sidebar = ({ selectedMenu, setSelectedMenu }) => {
   const { user } = useAuth();
   const isAdmin = user?.isAdmin;
-  const [isMjMenuOpen, setIsMjMenuOpen] = useState(false);
-  const [isMyInfoMenuOpen, setIsMyInfoMenuOpen] = useState(false);
-  const [isAdminToolsMenuOpen, setIsAdminToolsMenuOpen] = useState(false);
+  // 단일 상태로 모든 메뉴의 펼침 상태를 관리
+  const [openMenuId, setOpenMenuId] = useState(null);
+
+  // 메뉴 토글 함수 - 하나의 메뉴가 펼쳐지면 다른 메뉴들은 닫힘
+  const toggleMenu = (menuId) => {
+    setOpenMenuId(openMenuId === menuId ? null : menuId);
+  };
 
   // 나의 정보 메뉴 (드롭다운)
   const myInfoMenuItem = {
@@ -231,11 +235,12 @@ const Sidebar = ({ selectedMenu, setSelectedMenu }) => {
             
             // 나의 정보 메뉴인 경우 드롭다운으로 렌더링
             if (isMyInfo) {
+              const isOpen = openMenuId === item.id;
               return (
                 <div key={item.id}>
                   {/* 나의 정보 메인 메뉴 */}
                   <button
-                    onClick={() => setIsMyInfoMenuOpen(!isMyInfoMenuOpen)}
+                    onClick={() => toggleMenu(item.id)}
                     className={`group w-full flex items-center justify-between px-4 py-3 rounded-lg font-medium transition-all duration-200 text-gray-700 hover:bg-blue-50 hover:text-blue-600`}
                   >
                     <div className="flex items-center space-x-3">
@@ -247,7 +252,7 @@ const Sidebar = ({ selectedMenu, setSelectedMenu }) => {
                         </div>
                       </div>
                     </div>
-                    {isMyInfoMenuOpen ? (
+                    {isOpen ? (
                       <ChevronDown className="w-4 h-4 text-gray-400 group-hover:text-blue-600" />
                     ) : (
                       <ChevronRight className="w-4 h-4 text-gray-400 group-hover:text-blue-600" />
@@ -255,7 +260,7 @@ const Sidebar = ({ selectedMenu, setSelectedMenu }) => {
                   </button>
                   
                   {/* 나의 정보 하위 메뉴들 */}
-                  {isMyInfoMenuOpen && (
+                  {isOpen && (
                     <div className="ml-6 mt-2 space-y-1">
                       {item.subMenus.map((subItem) => {
                         const SubIconComponent = subItem.icon;
@@ -284,11 +289,12 @@ const Sidebar = ({ selectedMenu, setSelectedMenu }) => {
             
             // 관리자 도구 메뉴인 경우 드롭다운으로 렌더링
             if (isAdminTools) {
+              const isOpen = openMenuId === item.id;
               return (
                 <div key={item.id}>
                   {/* 관리자 도구 메인 메뉴 */}
                   <button
-                    onClick={() => setIsAdminToolsMenuOpen(!isAdminToolsMenuOpen)}
+                    onClick={() => toggleMenu(item.id)}
                     className={`group w-full flex items-center justify-between px-4 py-3 rounded-lg font-medium transition-all duration-200 text-red-700 hover:bg-red-50 hover:text-red-800 border-l-4 border-red-500`}
                   >
                     <div className="flex items-center space-x-3">
@@ -300,7 +306,7 @@ const Sidebar = ({ selectedMenu, setSelectedMenu }) => {
                         </div>
                       </div>
                     </div>
-                    {isAdminToolsMenuOpen ? (
+                    {isOpen ? (
                       <ChevronDown className="w-4 h-4 text-red-500 group-hover:text-red-600" />
                     ) : (
                       <ChevronRight className="w-4 h-4 text-red-500 group-hover:text-red-600" />
@@ -308,7 +314,7 @@ const Sidebar = ({ selectedMenu, setSelectedMenu }) => {
                   </button>
                   
                   {/* 관리자 도구 하위 메뉴들 */}
-                  {isAdminToolsMenuOpen && (
+                  {isOpen && (
                     <div className="ml-6 mt-2 space-y-1">
                       {item.subMenus.map((subItem) => {
                         const SubIconComponent = subItem.icon;
@@ -337,11 +343,12 @@ const Sidebar = ({ selectedMenu, setSelectedMenu }) => {
             
             // MJ 관리 메뉴인 경우 드롭다운으로 렌더링
             if (isMjManagement) {
+              const isOpen = openMenuId === item.id;
               return (
                 <div key={item.id}>
                   {/* MJ 관리 메인 메뉴 */}
                   <button
-                    onClick={() => setIsMjMenuOpen(!isMjMenuOpen)}
+                    onClick={() => toggleMenu(item.id)}
                     className={`group w-full flex items-center justify-between px-4 py-3 rounded-lg font-medium transition-all duration-200 text-gray-700 hover:bg-blue-50 hover:text-blue-600`}
                   >
                     <div className="flex items-center space-x-3">
@@ -353,7 +360,7 @@ const Sidebar = ({ selectedMenu, setSelectedMenu }) => {
                         </div>
                       </div>
                     </div>
-                    {isMjMenuOpen ? (
+                    {isOpen ? (
                       <ChevronDown className="w-4 h-4 text-gray-400 group-hover:text-blue-600" />
                     ) : (
                       <ChevronRight className="w-4 h-4 text-gray-400 group-hover:text-blue-600" />
@@ -361,7 +368,7 @@ const Sidebar = ({ selectedMenu, setSelectedMenu }) => {
                   </button>
                   
                   {/* MJ 관리 하위 메뉴들 */}
-                  {isMjMenuOpen && (
+                  {isOpen && (
                     <div className="ml-6 mt-2 space-y-1">
                       {item.subMenus.map((subItem) => {
                         const SubIconComponent = subItem.icon;
