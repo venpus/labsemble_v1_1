@@ -1,14 +1,9 @@
 // API 유틸리티 함수들
+import config from '../config/environment-loader';
 
-// API 기본 URL 설정
+// API 기본 URL 설정 (환경별 설정 사용)
 const getApiBaseUrl = () => {
-  // 개발 환경에서는 환경변수 또는 기본값 사용
-  if (process.env.NODE_ENV === 'development') {
-    return process.env.REACT_APP_API_URL || 'http://localhost:5000';
-  }
-  
-  // 상용 환경에서는 상대 경로 사용 (같은 도메인)
-  return '';
+  return config.API_BASE_URL;
 };
 
 // API URL 생성 함수

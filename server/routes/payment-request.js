@@ -319,4 +319,384 @@ router.get('/payment-request-details/:date', auth, async (req, res) => {
   }
 });
 
+// 선금 지급완료 처리 API
+router.post('/complete-advance-payment', auth, async (req, res) => {
+  const startTime = Date.now();
+  
+  try {
+    const { date, projectIds, paymentDate } = req.body;
+    
+    // 1. 입력 데이터 검증
+    if (!date || !Array.isArray(projectIds) || projectIds.length === 0 || !paymentDate) {
+      return res.status(400).json({
+        success: false,
+        message: '필수 데이터가 누락되었습니다.'
+      });
+    }
+
+    const connection = await pool.getConnection();
+    
+    try {
+      await connection.beginTransaction();
+      
+      const completedProjects = [];
+      const failedProjects = [];
+      
+      // 2. 각 프로젝트별로 지급완료 처리
+      for (const projectId of projectIds) {
+        try {
+          // 2-1. 프로젝트 존재 여부 확인
+          const [projectRows] = await connection.execute(
+            'SELECT id, project_name FROM mj_project WHERE id = ?',
+            [projectId]
+          );
+          
+          if (projectRows.length === 0) {
+            failedProjects.push({ projectId, reason: '프로젝트를 찾을 수 없습니다.' });
+            continue;
+          }
+          
+          const project = projectRows[0];
+          
+          // 2-2. mj_project_payments 테이블 업데이트 또는 생성
+          const [existingPayment] = await connection.execute(
+            'SELECT id FROM mj_project_payments WHERE project_id = ?',
+            [projectId]
+          );
+          
+          if (existingPayment.length > 0) {
+            // 기존 레코드 업데이트
+            await connection.execute(`
+              UPDATE mj_project_payments 
+              SET 
+                payment_status = JSON_SET(COALESCE(payment_status, '{}'), '$.advance', true),
+                payment_dates = JSON_SET(COALESCE(payment_dates, '{}'), '$.advance', ?),
+                updated_at = CURRENT_TIMESTAMP
+              WHERE project_id = ?
+            `, [paymentDate, projectId]);
+          } else {
+            // 새 레코드 생성
+            await connection.execute(`
+              INSERT INTO mj_project_payments (project_id, payment_status, payment_dates, payment_amounts)
+              VALUES (?, 
+                JSON_OBJECT('advance', true, 'balance', false),
+                JSON_OBJECT('advance', ?, 'balance', null),
+                JSON_OBJECT('advance', 0, 'balance', 0)
+              )
+            `, [projectId, paymentDate]);
+          }
+          
+          // 2-3. mj_project 테이블도 업데이트 (호환성 유지)
+          await connection.execute(`
+            UPDATE mj_project 
+            SET 
+              payment_status = JSON_SET(COALESCE(payment_status, '{}'), '$.advance', true),
+              payment_dates = JSON_SET(COALESCE(payment_dates, '{}'), '$.advance', ?),
+              updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+          `, [paymentDate, projectId]);
+          
+          completedProjects.push({
+            projectId: project.id,
+            projectName: project.project_name
+          });
+          
+        } catch (projectError) {
+          console.error(`프로젝트 ${projectId} 처리 오류:`, projectError);
+          failedProjects.push({ 
+            projectId, 
+            reason: `처리 중 오류 발생: ${projectError.message}` 
+          });
+        }
+      }
+      
+      // 3. 트랜잭션 커밋
+      await connection.commit();
+      
+      const processingTime = Date.now() - startTime;
+      console.log(`✅ [PaymentRequest] 선금 지급완료 처리 완료: ${completedProjects.length}개 성공, ${failedProjects.length}개 실패 (${processingTime}ms)`);
+      
+      res.json({
+        success: true,
+        message: '선금 지급완료 처리가 완료되었습니다.',
+        data: {
+          completedCount: completedProjects.length,
+          failedCount: failedProjects.length,
+          completedProjects,
+          failedProjects
+        },
+        processingTime
+      });
+      
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
+    
+  } catch (error) {
+    const processingTime = Date.now() - startTime;
+    console.error('❌ [PaymentRequest] 선금 지급완료 처리 오류:', error);
+    
+    res.status(500).json({
+      success: false,
+      message: '선금 지급완료 처리 중 오류가 발생했습니다.',
+      error: error.message,
+      processingTime
+    });
+  }
+});
+
+// 잔금 지급완료 처리 API
+router.post('/complete-balance-payment', auth, async (req, res) => {
+  const startTime = Date.now();
+  
+  try {
+    const { date, projectIds, paymentDate } = req.body;
+    
+    // 1. 입력 데이터 검증
+    if (!date || !Array.isArray(projectIds) || projectIds.length === 0 || !paymentDate) {
+      return res.status(400).json({
+        success: false,
+        message: '필수 데이터가 누락되었습니다.'
+      });
+    }
+
+    const connection = await pool.getConnection();
+    
+    try {
+      await connection.beginTransaction();
+      
+      const completedProjects = [];
+      const failedProjects = [];
+      
+      // 2. 각 프로젝트별로 잔금 지급완료 처리
+      for (const projectId of projectIds) {
+        try {
+          // 2-1. 프로젝트 존재 여부 확인
+          const [projectRows] = await connection.execute(
+            'SELECT id, project_name FROM mj_project WHERE id = ?',
+            [projectId]
+          );
+          
+          if (projectRows.length === 0) {
+            failedProjects.push({ projectId, reason: '프로젝트를 찾을 수 없습니다.' });
+            continue;
+          }
+          
+          const project = projectRows[0];
+          
+          // 2-2. mj_project_payments 테이블 업데이트 또는 생성
+          const [existingPayment] = await connection.execute(
+            'SELECT id FROM mj_project_payments WHERE project_id = ?',
+            [projectId]
+          );
+          
+          if (existingPayment.length > 0) {
+            // 기존 레코드 업데이트
+            await connection.execute(`
+              UPDATE mj_project_payments 
+              SET 
+                payment_status = JSON_SET(COALESCE(payment_status, '{}'), '$.balance', true),
+                payment_dates = JSON_SET(COALESCE(payment_dates, '{}'), '$.balance', ?),
+                updated_at = CURRENT_TIMESTAMP
+              WHERE project_id = ?
+            `, [paymentDate, projectId]);
+          } else {
+            // 새 레코드 생성
+            await connection.execute(`
+              INSERT INTO mj_project_payments (project_id, payment_status, payment_dates, payment_amounts)
+              VALUES (?, 
+                JSON_OBJECT('advance', false, 'balance', true),
+                JSON_OBJECT('advance', null, 'balance', ?),
+                JSON_OBJECT('advance', 0, 'balance', 0)
+              )
+            `, [projectId, paymentDate]);
+          }
+          
+          // 2-3. mj_project 테이블도 업데이트 (호환성 유지)
+          await connection.execute(`
+            UPDATE mj_project 
+            SET 
+              payment_status = JSON_SET(COALESCE(payment_status, '{}'), '$.balance', true),
+              payment_dates = JSON_SET(COALESCE(payment_dates, '{}'), '$.balance', ?),
+              updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+          `, [paymentDate, projectId]);
+          
+          completedProjects.push({
+            projectId: project.id,
+            projectName: project.project_name
+          });
+          
+        } catch (projectError) {
+          console.error(`프로젝트 ${projectId} 처리 오류:`, projectError);
+          failedProjects.push({ 
+            projectId, 
+            reason: `처리 중 오류 발생: ${projectError.message}` 
+          });
+        }
+      }
+      
+      // 3. 트랜잭션 커밋
+      await connection.commit();
+      
+      const processingTime = Date.now() - startTime;
+      console.log(`✅ [PaymentRequest] 잔금 지급완료 처리 완료: ${completedProjects.length}개 성공, ${failedProjects.length}개 실패 (${processingTime}ms)`);
+      
+      res.json({
+        success: true,
+        message: '잔금 지급완료 처리가 완료되었습니다.',
+        data: {
+          completedCount: completedProjects.length,
+          failedCount: failedProjects.length,
+          completedProjects,
+          failedProjects
+        },
+        processingTime
+      });
+      
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
+    
+  } catch (error) {
+    const processingTime = Date.now() - startTime;
+    console.error('❌ [PaymentRequest] 잔금 지급완료 처리 오류:', error);
+    
+    res.status(500).json({
+      success: false,
+      message: '잔금 지급완료 처리 중 오류가 발생했습니다.',
+      error: error.message,
+      processingTime
+    });
+  }
+});
+
+// 배송비 지급완료 처리 API
+router.post('/complete-shipping-payment', auth, async (req, res) => {
+  const startTime = Date.now();
+  
+  try {
+    const { date, requestIds, paymentDate } = req.body;
+    
+    // 1. 입력 데이터 검증
+    if (!date || !Array.isArray(requestIds) || requestIds.length === 0 || !paymentDate) {
+      return res.status(400).json({
+        success: false,
+        message: '필수 데이터가 누락되었습니다.'
+      });
+    }
+
+    const connection = await pool.getConnection();
+    
+    try {
+      await connection.beginTransaction();
+      
+      const completedRequests = [];
+      const failedRequests = [];
+      
+      // 2. 각 배송비 요청별로 지급완료 처리
+      for (const requestId of requestIds) {
+        try {
+          // 2-1. 배송비 요청 존재 여부 확인
+          const [requestRows] = await connection.execute(
+            'SELECT id, pl_date, packing_codes, total_amount FROM mj_shipping_payment_requests WHERE id = ? AND status = "pending"',
+            [requestId]
+          );
+          
+          if (requestRows.length === 0) {
+            failedRequests.push({ requestId, reason: '배송비 요청을 찾을 수 없습니다.' });
+            continue;
+          }
+          
+          const request = requestRows[0];
+          
+          // 2-2. mj_shipping_payment_requests 테이블 상태 업데이트
+          await connection.execute(`
+            UPDATE mj_shipping_payment_requests 
+            SET 
+              status = 'completed',
+              updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+          `, [requestId]);
+          
+          // 2-3. logistic_payment 테이블의 is_paid 상태 업데이트
+          // 해당 pl_date와 packing_codes에 해당하는 logistic_payment 레코드들을 찾아서 업데이트
+          const packingCodes = request.packing_codes.split(',').map(code => code.trim());
+          
+          let updatedLogisticRecords = 0;
+          for (const packingCode of packingCodes) {
+            const [updateResult] = await connection.execute(`
+              UPDATE logistic_payment 
+              SET 
+                is_paid = true,
+                updated_at = CURRENT_TIMESTAMP
+              WHERE packing_code = ? 
+                AND pl_date = ?
+                AND is_paid = false
+            `, [packingCode, request.pl_date]);
+            
+            updatedLogisticRecords += updateResult.affectedRows;
+          }
+          
+          completedRequests.push({
+            requestId: request.id,
+            plDate: request.pl_date,
+            packingCodes: request.packing_codes,
+            totalAmount: request.total_amount,
+            updatedLogisticRecords
+          });
+          
+        } catch (requestError) {
+          console.error(`배송비 요청 ${requestId} 처리 오류:`, requestError);
+          failedRequests.push({ 
+            requestId, 
+            reason: `처리 중 오류 발생: ${requestError.message}` 
+          });
+        }
+      }
+      
+      // 3. 트랜잭션 커밋
+      await connection.commit();
+      
+      const processingTime = Date.now() - startTime;
+      console.log(`✅ [PaymentRequest] 배송비 지급완료 처리 완료: ${completedRequests.length}개 성공, ${failedRequests.length}개 실패 (${processingTime}ms)`);
+      
+      res.json({
+        success: true,
+        message: '배송비 지급완료 처리가 완료되었습니다.',
+        data: {
+          completedCount: completedRequests.length,
+          failedCount: failedRequests.length,
+          completedRequests,
+          failedRequests
+        },
+        processingTime
+      });
+      
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
+    
+  } catch (error) {
+    const processingTime = Date.now() - startTime;
+    console.error('❌ [PaymentRequest] 배송비 지급완료 처리 오류:', error);
+    
+    res.status(500).json({
+      success: false,
+      message: '배송비 지급완료 처리 중 오류가 발생했습니다.',
+      error: error.message,
+      processingTime
+    });
+  }
+});
+
 module.exports = router;

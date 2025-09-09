@@ -115,6 +115,9 @@ const Navbar = () => {
               )}
             </div>
 
+            <Link to="/shop" className="text-gray-700 hover:text-blue-600 font-bold">
+              SHOP
+            </Link>
             <Link to="/news" className="text-gray-700 hover:text-blue-600 font-bold">
               Labsemble 소식
             </Link>
@@ -251,6 +254,13 @@ const Navbar = () => {
                 onClick={() => setIsMenuOpen(false)}
               >
                 문의
+              </Link>
+              <Link
+                to="/shop"
+                className="block px-3 py-2 text-gray-700 hover:text-blue-600 font-bold"
+                onClick={() => setIsMenuOpen(false)}
+              >
+                SHOP
               </Link>
               <Link
                 to="/news"

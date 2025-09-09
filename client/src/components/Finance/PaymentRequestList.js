@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Calendar, DollarSign, Package, Truck, Clock, ChevronDown, ChevronRight, Building, User, Image, Tag, Percent, MapPin, Printer } from 'lucide-react';
+import { Calendar, DollarSign, Package, Truck, Clock, ChevronDown, ChevronRight, Building, User, Image, Tag, Percent, MapPin, Printer, CheckCircle } from 'lucide-react';
 import PaymentRequestPrints from './PaymentRequestPrints';
 
 const PaymentRequestList = () => {
@@ -10,6 +10,18 @@ const PaymentRequestList = () => {
   const [detailData, setDetailData] = useState({});
   const [loadingDetails, setLoadingDetails] = useState(new Set());
   const [printModal, setPrintModal] = useState({ isOpen: false, date: null, request: null });
+  
+  // 지급완료 관련 상태
+  const [completingPayments, setCompletingPayments] = useState(new Set()); // 선금 지급완료 처리 중인 날짜들
+  const [completedPayments, setCompletedPayments] = useState(new Set());   // 선금 지급완료된 날짜들
+  
+  // 잔금 지급완료 관련 상태
+  const [completingBalancePayments, setCompletingBalancePayments] = useState(new Set()); // 잔금 지급완료 처리 중인 날짜들
+  const [completedBalancePayments, setCompletedBalancePayments] = useState(new Set());   // 잔금 지급완료된 날짜들
+  
+  // 배송비 지급완료 관련 상태
+  const [completingShippingPayments, setCompletingShippingPayments] = useState(new Set()); // 배송비 지급완료 처리 중인 날짜들
+  const [completedShippingPayments, setCompletedShippingPayments] = useState(new Set());   // 배송비 지급완료된 날짜들
 
   useEffect(() => {
     fetchPaymentRequests();
@@ -129,6 +141,238 @@ const PaymentRequestList = () => {
       date: date,
       request: request
     });
+  };
+
+  // 금일까지의 지급 예정 금액 새로고침 함수
+  const refreshPaymentSchedule = async () => {
+    try {
+      // 부모 컴포넌트의 지급 예정 데이터 새로고침을 위한 이벤트 발생
+      window.dispatchEvent(new CustomEvent('refreshPaymentSchedule'));
+    } catch (error) {
+      console.error('지급 예정 데이터 새로고침 오류:', error);
+    }
+  };
+
+  // 배송비 지급완료 처리 함수
+  const handleCompleteShippingPayment = async (date) => {
+    try {
+      // 1. 해당 날짜의 배송비 요청 ID 수집
+      const shippingRequests = detailData[date]?.shipping || [];
+      const requestIds = shippingRequests.map(request => request.id);
+      
+      if (requestIds.length === 0) {
+        alert('지급완료할 배송비 요청이 없습니다.');
+        return;
+      }
+
+      // 2. 확인 다이얼로그
+      const confirmed = window.confirm(
+        `${date} 날짜의 배송비 지급을 완료 처리하시겠습니까?\n` +
+        `처리할 요청: ${requestIds.length}개\n\n` +
+        `요청 목록:\n${shippingRequests.map(r => `- ${r.packing_codes} (${r.total_amount} CNY)`).join('\n')}`
+      );
+      
+      if (!confirmed) return;
+
+      // 3. 로딩 상태 설정
+      setCompletingShippingPayments(prev => new Set(prev).add(date));
+
+      // 4. API 호출
+      const response = await fetch('/api/payment-request/complete-shipping-payment', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        },
+        body: JSON.stringify({
+          date: date,
+          requestIds: requestIds,
+          paymentDate: new Date().toISOString().split('T')[0] // 오늘 날짜
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`서버 오류 (${response.status})`);
+      }
+
+      const result = await response.json();
+      
+      if (result.success) {
+        // 5. 성공 처리
+        setCompletedShippingPayments(prev => new Set(prev).add(date));
+        alert(`배송비 지급완료 처리가 완료되었습니다.\n처리된 요청: ${result.data.completedCount}개`);
+        
+        // 6. 데이터 새로고침
+        await fetchPaymentRequests();
+        if (detailData[date]) {
+          await fetchDetailData(date);
+        }
+        
+        // 7. 금일까지의 지급 예정 금액 새로고침
+        await refreshPaymentSchedule();
+      } else {
+        throw new Error(result.message || '지급완료 처리에 실패했습니다.');
+      }
+
+    } catch (error) {
+      console.error('배송비 지급완료 처리 오류:', error);
+      alert(`지급완료 처리 중 오류가 발생했습니다: ${error.message}`);
+    } finally {
+      // 8. 로딩 상태 해제
+      setCompletingShippingPayments(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(date);
+        return newSet;
+      });
+    }
+  };
+
+  // 잔금 지급완료 처리 함수
+  const handleCompleteBalancePayment = async (date) => {
+    try {
+      // 1. 해당 날짜의 잔금 프로젝트 ID 수집
+      const balanceProjects = detailData[date]?.balance || [];
+      const projectIds = balanceProjects.map(project => project.project_id);
+      
+      if (projectIds.length === 0) {
+        alert('지급완료할 잔금 프로젝트가 없습니다.');
+        return;
+      }
+
+      // 2. 확인 다이얼로그
+      const confirmed = window.confirm(
+        `${date} 날짜의 잔금 지급을 완료 처리하시겠습니까?\n` +
+        `처리할 프로젝트: ${projectIds.length}개\n\n` +
+        `프로젝트 목록:\n${balanceProjects.map(p => `- ${p.project_name} (ID: ${p.project_id})`).join('\n')}`
+      );
+      
+      if (!confirmed) return;
+
+      // 3. 로딩 상태 설정
+      setCompletingBalancePayments(prev => new Set(prev).add(date));
+
+      // 4. API 호출
+      const response = await fetch('/api/payment-request/complete-balance-payment', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        },
+        body: JSON.stringify({
+          date: date,
+          projectIds: projectIds,
+          paymentDate: new Date().toISOString().split('T')[0] // 오늘 날짜
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`서버 오류 (${response.status})`);
+      }
+
+      const result = await response.json();
+      
+      if (result.success) {
+        // 5. 성공 처리
+        setCompletedBalancePayments(prev => new Set(prev).add(date));
+        alert(`잔금 지급완료 처리가 완료되었습니다.\n처리된 프로젝트: ${result.data.completedCount}개`);
+        
+        // 6. 데이터 새로고침
+        await fetchPaymentRequests();
+        if (detailData[date]) {
+          await fetchDetailData(date);
+        }
+        
+        // 7. 금일까지의 지급 예정 금액 새로고침
+        await refreshPaymentSchedule();
+      } else {
+        throw new Error(result.message || '지급완료 처리에 실패했습니다.');
+      }
+
+    } catch (error) {
+      console.error('잔금 지급완료 처리 오류:', error);
+      alert(`지급완료 처리 중 오류가 발생했습니다: ${error.message}`);
+    } finally {
+      // 8. 로딩 상태 해제
+      setCompletingBalancePayments(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(date);
+        return newSet;
+      });
+    }
+  };
+
+  // 선금 지급완료 처리 함수
+  const handleCompleteAdvancePayment = async (date) => {
+    try {
+      // 1. 해당 날짜의 선금 프로젝트 ID 수집
+      const advanceProjects = detailData[date]?.advance || [];
+      const projectIds = advanceProjects.map(project => project.project_id);
+      
+      if (projectIds.length === 0) {
+        alert('지급완료할 선금 프로젝트가 없습니다.');
+        return;
+      }
+
+      // 2. 확인 다이얼로그
+      const confirmed = window.confirm(
+        `${date} 날짜의 선금 지급을 완료 처리하시겠습니까?\n` +
+        `처리할 프로젝트: ${projectIds.length}개\n\n` +
+        `프로젝트 목록:\n${advanceProjects.map(p => `- ${p.project_name} (ID: ${p.project_id})`).join('\n')}`
+      );
+      
+      if (!confirmed) return;
+
+      // 3. 로딩 상태 설정
+      setCompletingPayments(prev => new Set(prev).add(date));
+
+      // 4. API 호출
+      const response = await fetch('/api/payment-request/complete-advance-payment', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        },
+        body: JSON.stringify({
+          date: date,
+          projectIds: projectIds,
+          paymentDate: new Date().toISOString().split('T')[0] // 오늘 날짜
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`서버 오류 (${response.status})`);
+      }
+
+      const result = await response.json();
+      
+      if (result.success) {
+        // 5. 성공 처리
+        setCompletedPayments(prev => new Set(prev).add(date));
+        alert(`선금 지급완료 처리가 완료되었습니다.\n처리된 프로젝트: ${result.data.completedCount}개`);
+        
+        // 6. 데이터 새로고침
+        await fetchPaymentRequests();
+        if (detailData[date]) {
+          await fetchDetailData(date);
+        }
+        
+        // 7. 금일까지의 지급 예정 금액 새로고침
+        await refreshPaymentSchedule();
+      } else {
+        throw new Error(result.message || '지급완료 처리에 실패했습니다.');
+      }
+
+    } catch (error) {
+      console.error('선금 지급완료 처리 오류:', error);
+      alert(`지급완료 처리 중 오류가 발생했습니다: ${error.message}`);
+    } finally {
+      // 8. 로딩 상태 해제
+      setCompletingPayments(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(date);
+        return newSet;
+      });
+    }
   };
 
   if (loading) {
@@ -262,13 +506,50 @@ const PaymentRequestList = () => {
                   {request.advance && (
                     <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
                       <div className="px-6 py-4 bg-red-50 border-b border-red-200">
-                        <h4 className="text-lg font-semibold text-red-800 flex items-center">
-                          <DollarSign className="w-5 h-5 mr-2" />
-                          선금 지급 요청
-                          <span className="ml-2 text-sm font-normal text-red-600">
-                            ({request.advance.count}건)
-                          </span>
-                        </h4>
+                        <div className="flex items-center justify-between">
+                          <h4 className="text-lg font-semibold text-red-800 flex items-center">
+                            <DollarSign className="w-5 h-5 mr-2" />
+                            선금 지급 요청
+                            <span className="ml-2 text-sm font-normal text-red-600">
+                              ({request.advance.count}건)
+                            </span>
+                          </h4>
+                          <button
+                            onClick={() => handleCompleteAdvancePayment(request.date)}
+                            disabled={completingPayments.has(request.date) || completedPayments.has(request.date)}
+                            className={`inline-flex items-center px-4 py-2 text-sm font-medium rounded-lg transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 ${
+                              completingPayments.has(request.date)
+                                ? 'bg-gray-400 text-gray-200 cursor-not-allowed'
+                                : completedPayments.has(request.date)
+                                  ? 'bg-green-500 text-white cursor-default'
+                                  : 'bg-green-600 hover:bg-green-700 text-white focus:ring-green-500'
+                            }`}
+                            title={
+                              completingPayments.has(request.date)
+                                ? '지급완료 처리 중...'
+                                : completedPayments.has(request.date)
+                                  ? '지급완료 처리됨'
+                                  : '선금 지급을 완료 처리합니다'
+                            }
+                          >
+                            {completingPayments.has(request.date) ? (
+                              <>
+                                <Clock className="w-4 h-4 mr-2 animate-spin" />
+                                처리 중...
+                              </>
+                            ) : completedPayments.has(request.date) ? (
+                              <>
+                                <CheckCircle className="w-4 h-4 mr-2" />
+                                지급완료됨
+                              </>
+                            ) : (
+                              <>
+                                <DollarSign className="w-4 h-4 mr-2" />
+                                지급완료
+                              </>
+                            )}
+                          </button>
+                        </div>
                       </div>
                       
                       {loadingDetails.has(request.date) ? (
@@ -390,13 +671,50 @@ const PaymentRequestList = () => {
                   {request.balance && (
                     <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
                       <div className="px-6 py-4 bg-blue-50 border-b border-blue-200">
-                        <h4 className="text-lg font-semibold text-blue-800 flex items-center">
-                          <DollarSign className="w-5 h-5 mr-2" />
-                          잔금 지급 요청
-                          <span className="ml-2 text-sm font-normal text-blue-600">
-                            ({request.balance.count}건)
-                          </span>
-                        </h4>
+                        <div className="flex items-center justify-between">
+                          <h4 className="text-lg font-semibold text-blue-800 flex items-center">
+                            <DollarSign className="w-5 h-5 mr-2" />
+                            잔금 지급 요청
+                            <span className="ml-2 text-sm font-normal text-blue-600">
+                              ({request.balance.count}건)
+                            </span>
+                          </h4>
+                          <button
+                            onClick={() => handleCompleteBalancePayment(request.date)}
+                            disabled={completingBalancePayments.has(request.date) || completedBalancePayments.has(request.date)}
+                            className={`inline-flex items-center px-4 py-2 text-sm font-medium rounded-lg transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 ${
+                              completingBalancePayments.has(request.date)
+                                ? 'bg-gray-400 text-gray-200 cursor-not-allowed'
+                                : completedBalancePayments.has(request.date)
+                                  ? 'bg-green-500 text-white cursor-default'
+                                  : 'bg-green-600 hover:bg-green-700 text-white focus:ring-green-500'
+                            }`}
+                            title={
+                              completingBalancePayments.has(request.date)
+                                ? '잔금 지급완료 처리 중...'
+                                : completedBalancePayments.has(request.date)
+                                  ? '잔금 지급완료 처리됨'
+                                  : '잔금 지급을 완료 처리합니다'
+                            }
+                          >
+                            {completingBalancePayments.has(request.date) ? (
+                              <>
+                                <Clock className="w-4 h-4 mr-2 animate-spin" />
+                                처리 중...
+                              </>
+                            ) : completedBalancePayments.has(request.date) ? (
+                              <>
+                                <CheckCircle className="w-4 h-4 mr-2" />
+                                지급완료됨
+                              </>
+                            ) : (
+                              <>
+                                <DollarSign className="w-4 h-4 mr-2" />
+                                지급완료
+                              </>
+                            )}
+                          </button>
+                        </div>
                       </div>
                       
                       {loadingDetails.has(request.date) ? (
@@ -529,13 +847,50 @@ const PaymentRequestList = () => {
                   {request.shipping && (
                     <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
                       <div className="px-6 py-4 bg-orange-50 border-b border-orange-200">
-                        <h4 className="text-lg font-semibold text-orange-800 flex items-center">
-                          <Truck className="w-5 h-5 mr-2" />
-                          배송비 지급 요청
-                          <span className="ml-2 text-sm font-normal text-orange-600">
-                            ({request.shipping.count}건)
-                          </span>
-                        </h4>
+                        <div className="flex items-center justify-between">
+                          <h4 className="text-lg font-semibold text-orange-800 flex items-center">
+                            <Truck className="w-5 h-5 mr-2" />
+                            배송비 지급 요청
+                            <span className="ml-2 text-sm font-normal text-orange-600">
+                              ({request.shipping.count}건)
+                            </span>
+                          </h4>
+                          <button
+                            onClick={() => handleCompleteShippingPayment(request.date)}
+                            disabled={completingShippingPayments.has(request.date) || completedShippingPayments.has(request.date)}
+                            className={`inline-flex items-center px-4 py-2 text-sm font-medium rounded-lg transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 ${
+                              completingShippingPayments.has(request.date)
+                                ? 'bg-gray-400 text-gray-200 cursor-not-allowed'
+                                : completedShippingPayments.has(request.date)
+                                  ? 'bg-green-500 text-white cursor-default'
+                                  : 'bg-green-600 hover:bg-green-700 text-white focus:ring-green-500'
+                            }`}
+                            title={
+                              completingShippingPayments.has(request.date)
+                                ? '배송비 지급완료 처리 중...'
+                                : completedShippingPayments.has(request.date)
+                                  ? '배송비 지급완료 처리됨'
+                                  : '배송비 지급을 완료 처리합니다'
+                            }
+                          >
+                            {completingShippingPayments.has(request.date) ? (
+                              <>
+                                <Clock className="w-4 h-4 mr-2 animate-spin" />
+                                처리 중...
+                              </>
+                            ) : completedShippingPayments.has(request.date) ? (
+                              <>
+                                <CheckCircle className="w-4 h-4 mr-2" />
+                                지급완료됨
+                              </>
+                            ) : (
+                              <>
+                                <Truck className="w-4 h-4 mr-2" />
+                                지급완료
+                              </>
+                            )}
+                          </button>
+                        </div>
                       </div>
                       
                       {loadingDetails.has(request.date) ? (

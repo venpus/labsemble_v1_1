@@ -476,6 +476,31 @@ const Finance = () => {
     loadAllData();
   }, []);
 
+  // 지급 예정 데이터 새로고침 이벤트 리스너
+  useEffect(() => {
+    const handleRefreshPaymentSchedule = async () => {
+      console.log('🔄 [Finance] 지급 예정 데이터 새로고침 시작');
+      try {
+        await Promise.all([
+          fetchAdvancePaymentSchedule(),
+          fetchBalancePaymentSchedule(),
+          fetchShippingPaymentSchedule()
+        ]);
+        console.log('✅ [Finance] 지급 예정 데이터 새로고침 완료');
+      } catch (error) {
+        console.error('❌ [Finance] 지급 예정 데이터 새로고침 오류:', error);
+      }
+    };
+
+    // 이벤트 리스너 등록
+    window.addEventListener('refreshPaymentSchedule', handleRefreshPaymentSchedule);
+
+    // 컴포넌트 언마운트 시 이벤트 리스너 제거
+    return () => {
+      window.removeEventListener('refreshPaymentSchedule', handleRefreshPaymentSchedule);
+    };
+  }, []);
+
 
 
   // CNY 기준 요약 통계 (API에서 가져온 데이터 사용, 숫자 타입 보장)

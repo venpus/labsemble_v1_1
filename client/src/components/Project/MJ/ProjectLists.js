@@ -24,15 +24,23 @@ const ProjectLists = () => {
   const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [searchTerm, setSearchTerm] = useState('');
+  const [searchTerm, setSearchTerm] = useState(''); // 입력 중인 검색어
+  const [appliedSearchTerm, setAppliedSearchTerm] = useState(''); // 실제 적용된 검색어
   const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage, setItemsPerPage] = useState(10);
+  // itemsPerPage를 URL 파라미터에서 직접 읽어서 사용
+  const getItemsPerPage = () => {
+    const limit = searchParams.get('limit');
+    return limit ? parseInt(limit, 10) || 10 : 10;
+  };
+  
+  // itemsPerPage는 URL 파라미터에서 직접 읽어서 사용
   const [totalItems, setTotalItems] = useState(0);
+  const [filteredProjects, setFilteredProjects] = useState([]);
   const [filterOrderStatus, setFilterOrderStatus] = useState('all');
   const [filterShippingStatus, setFilterShippingStatus] = useState('all');
   const [filterWarehouseStatus, setFilterWarehouseStatus] = useState('all');
 
-  // URL 파라미터에서 페이지 상태 및 필터 조건 복원
+  // URL 파라미터에서 상태 복원
   useEffect(() => {
     const page = searchParams.get('page');
     const limit = searchParams.get('limit');
@@ -43,23 +51,30 @@ const ProjectLists = () => {
     
     console.log('🔄 [ProjectLists] URL 파라미터 복원:', { 
       page, limit, search, orderStatus, shippingStatus, warehouseStatus, 
-      searchParams: searchParams.toString() 
+      searchParams: searchParams.toString()
     });
     
+    // 페이지 복원
     if (page) {
       const pageNum = parseInt(page, 10) || 1;
       console.log('📄 [ProjectLists] 페이지 복원:', pageNum);
       setCurrentPage(pageNum);
     }
+    
+    // limit 복원 - getItemsPerPage() 함수에서 자동으로 처리됨
     if (limit) {
       const limitNum = parseInt(limit, 10) || 10;
       console.log('📊 [ProjectLists] 페이지당 항목 수 복원:', limitNum);
-      setItemsPerPage(limitNum);
     }
+    
+    // 검색어 복원
     if (search !== null) {
       console.log('🔍 [ProjectLists] 검색어 복원:', search);
       setSearchTerm(search);
+      setAppliedSearchTerm(search);
     }
+    
+    // 필터 복원
     if (orderStatus !== null) {
       console.log('📋 [ProjectLists] 발주상태 필터 복원:', orderStatus);
       setFilterOrderStatus(orderStatus);
@@ -72,20 +87,20 @@ const ProjectLists = () => {
       console.log('📦 [ProjectLists] 입고상태 필터 복원:', warehouseStatus);
       setFilterWarehouseStatus(warehouseStatus);
     }
-  }, [searchParams]);
+  }, [searchParams]); // searchParams가 변경될 때마다 실행
 
   useEffect(() => {
     if (isAuthenticated) {
       fetchProjects();
     }
-  }, [isAuthenticated, searchTerm, currentPage, itemsPerPage, filterOrderStatus, filterShippingStatus, filterWarehouseStatus]);
+  }, [isAuthenticated, appliedSearchTerm, currentPage, getItemsPerPage(), filterOrderStatus, filterShippingStatus, filterWarehouseStatus]);
 
-  // 검색어나 필터가 변경되면 첫 페이지로 이동
+  // 검색어가 변경되면 첫 페이지로 이동
   useEffect(() => {
-    if (searchTerm !== '' || filterOrderStatus !== 'all' || filterShippingStatus !== 'all' || filterWarehouseStatus !== 'all') {
+    if (appliedSearchTerm !== '') {
       setCurrentPage(1);
     }
-  }, [searchTerm, filterOrderStatus, filterShippingStatus, filterWarehouseStatus]);
+  }, [appliedSearchTerm]);
 
   // itemsPerPage가 변경되면 현재 페이지를 1로 리셋 (URL 파라미터가 없을 때만)
   useEffect(() => {
@@ -93,24 +108,130 @@ const ProjectLists = () => {
     if (!page) {
       setCurrentPage(1);
     }
-  }, [itemsPerPage, searchParams]);
+  }, [getItemsPerPage(), searchParams]);
 
 
-  // 서버사이드 필터링을 사용하므로 클라이언트사이드 필터링 로직 제거
+  // 서버에서 이미 필터링된 데이터를 받으므로 클라이언트 사이드 필터링 비활성화
+  // useEffect(() => {
+  //   applyFilters();
+  // }, [projects, searchTerm, filterOrderStatus, filterShippingStatus, filterWarehouseStatus, searchParams]);
+
+  // 검색 실행 함수
+  const handleSearch = () => {
+    console.log('🔍 [ProjectLists] 검색 실행:', { searchTerm, appliedSearchTerm });
+    setAppliedSearchTerm(searchTerm);
+    setCurrentPage(1);
+    // URL 파라미터 업데이트
+    updateUrlParams({ 
+      search: searchTerm,
+      page: 1 
+    });
+  };
+
+  // 필터 초기화 함수
+  const handleClearFilters = () => {
+    setSearchTerm('');
+    setAppliedSearchTerm('');
+    setFilterOrderStatus('all');
+    setFilterShippingStatus('all');
+    setFilterWarehouseStatus('all');
+    setCurrentPage(1);
+    // URL 파라미터 초기화
+    updateUrlParams({ 
+      search: '',
+      orderStatus: 'all',
+      shippingStatus: 'all',
+      warehouseStatus: 'all',
+      page: 1 
+    });
+  };
+
+  // 검색 및 필터링 적용
+  const applyFilters = () => {
+    let filtered = [...projects];
+
+    // 프로젝트명 검색은 서버에서 처리되므로 클라이언트에서는 제거
+
+    // 발주상태 필터
+    if (filterOrderStatus !== 'all') {
+      if (filterOrderStatus === 'completed') {
+        filtered = filtered.filter(project => project.is_order_completed === 1);
+      } else if (filterOrderStatus === 'waiting') {
+        filtered = filtered.filter(project => project.is_order_completed === 0);
+      }
+    }
+
+    // 공장출고 필터
+    if (filterShippingStatus !== 'all') {
+      if (filterShippingStatus === '미설정') {
+        filtered = filtered.filter(project => !project.factory_shipping_status);
+      } else {
+        filtered = filtered.filter(project => project.factory_shipping_status === filterShippingStatus);
+      }
+    }
+
+    // 입고상태 필터
+    if (filterWarehouseStatus !== 'all') {
+      filtered = filtered.filter(project => {
+        const projectQuantity = Number(project.quantity) || 0;
+        const warehouseQuantity = Number(project.warehouse_quantity) || 0;
+        
+        switch (filterWarehouseStatus) {
+          case '입고완료':
+            return (projectQuantity === warehouseQuantity || projectQuantity < warehouseQuantity) && warehouseQuantity > 0;
+          case '입고중':
+            return projectQuantity > warehouseQuantity && warehouseQuantity > 0;
+          case '입고 대기':
+            return warehouseQuantity === 0;
+          default:
+            return true;
+        }
+      });
+    }
+
+    setFilteredProjects(filtered);
+    setTotalItems(filtered.length);
+    
+    // URL 파라미터가 없을 때만 첫 페이지로 이동 (검색/필터링 시)
+    const page = searchParams.get('page');
+    console.log('🔍 [ProjectLists] applyFilters 실행:', { 
+      filteredCount: filtered.length, 
+      hasPageParam: !!page, 
+      currentPage: currentPage,
+      searchParams: searchParams.toString()
+    });
+    
+    if (!page) {
+      console.log('📄 [ProjectLists] 페이지 파라미터 없음, 1페이지로 리셋');
+      setCurrentPage(1);
+    } else {
+      console.log('📄 [ProjectLists] 페이지 파라미터 있음, 페이지 유지:', page);
+    }
+  };
 
   const fetchProjects = async () => {
     try {
       setLoading(true);
       const token = localStorage.getItem('token');
       
-      // URL 파라미터 구성 (서버사이드 필터링 포함)
+      // URL 파라미터 구성
       const params = new URLSearchParams();
-      if (searchTerm) params.append('search', searchTerm);
+      if (appliedSearchTerm) params.append('search', appliedSearchTerm);
       if (filterOrderStatus !== 'all') params.append('orderStatus', filterOrderStatus);
       if (filterShippingStatus !== 'all') params.append('shippingStatus', filterShippingStatus);
       if (filterWarehouseStatus !== 'all') params.append('warehouseStatus', filterWarehouseStatus);
       params.append('page', currentPage);
-      params.append('limit', itemsPerPage);
+      params.append('limit', getItemsPerPage());
+      
+      console.log('🔍 [ProjectLists] API 요청 파라미터:', {
+        appliedSearchTerm,
+        filterOrderStatus,
+        filterShippingStatus,
+        filterWarehouseStatus,
+        currentPage,
+        itemsPerPage: getItemsPerPage(),
+        url: `/api/mj-project?${params.toString()}`
+      });
       
       const response = await fetch(`/api/mj-project?${params.toString()}`, {
         headers: {
@@ -127,7 +248,15 @@ const ProjectLists = () => {
       if (data.success) {
         // 서버에서 이미 필터링된 프로젝트를 받음
         setProjects(data.projects);
+        setFilteredProjects(data.projects);
         setTotalItems(data.pagination?.total || data.projects.length);
+        console.log('🔍 [ProjectLists] 서버에서 받은 프로젝트:', {
+          projectsCount: data.projects.length,
+          totalItems: data.pagination?.total || data.projects.length,
+          currentPage: currentPage,
+          itemsPerPage: getItemsPerPage(),
+          pagination: data.pagination
+        });
       } else {
         setError(data.message || '프로젝트 목록을 불러오는데 실패했습니다.');
       }
@@ -139,11 +268,21 @@ const ProjectLists = () => {
   };
 
   const handleViewProject = (projectId) => {
-    // 현재 페이지 정보를 URL에 포함하여 상세보기로 이동
-    const currentUrl = new URL(window.location);
+    // 현재 모든 상태를 URL에 포함하여 상세보기로 이동
     const returnParams = new URLSearchParams();
     returnParams.set('page', currentPage.toString());
-    returnParams.set('limit', itemsPerPage.toString());
+    returnParams.set('limit', getItemsPerPage().toString());
+    
+    // 검색 조건들도 포함
+    if (appliedSearchTerm) returnParams.set('search', appliedSearchTerm);
+    if (filterOrderStatus !== 'all') returnParams.set('orderStatus', filterOrderStatus);
+    if (filterShippingStatus !== 'all') returnParams.set('shippingStatus', filterShippingStatus);
+    if (filterWarehouseStatus !== 'all') returnParams.set('warehouseStatus', filterWarehouseStatus);
+    
+    console.log('🔗 [ProjectLists] 프로젝트 상세보기로 이동:', {
+      projectId,
+      returnParams: returnParams.toString()
+    });
     
     navigate(`/dashboard/mj-projects/${projectId}?return=${encodeURIComponent(returnParams.toString())}`);
   };
@@ -153,7 +292,7 @@ const ProjectLists = () => {
     const currentUrl = new URL(window.location);
     const returnParams = new URLSearchParams();
     returnParams.set('page', currentPage.toString());
-    returnParams.set('limit', itemsPerPage.toString());
+    returnParams.set('limit', getItemsPerPage().toString());
     
     navigate(`/dashboard/mj-projects/${projectId}/edit?return=${encodeURIComponent(returnParams.toString())}`);
   };
@@ -236,20 +375,43 @@ const ProjectLists = () => {
 
   // 페이징 관련 함수들
   const handlePageChange = (page) => {
+    console.log('📄 [ProjectLists] 페이지 변경:', { from: currentPage, to: page });
     setCurrentPage(page);
     updateUrlParams({ page });
   };
 
   const handleItemsPerPageChange = (newItemsPerPage) => {
-    setItemsPerPage(newItemsPerPage);
+    console.log('📊 [ProjectLists] 페이지당 항목 수 변경:', {
+      from: getItemsPerPage(),
+      to: newItemsPerPage,
+      currentPage: currentPage
+    });
+    // itemsPerPage는 URL 파라미터로 관리되므로 setItemsPerPage 제거
     setCurrentPage(1); // 페이지 크기가 변경되면 첫 페이지로 이동
-    updateUrlParams({ page: 1, limit: newItemsPerPage });
+    
+    // 현재 검색 조건들을 유지하면서 limit만 업데이트
+    const updates = { 
+      page: 1, 
+      limit: newItemsPerPage,
+      search: appliedSearchTerm || searchTerm,
+      orderStatus: filterOrderStatus,
+      shippingStatus: filterShippingStatus,
+      warehouseStatus: filterWarehouseStatus
+    };
+    
+    updateUrlParams(updates);
+    console.log('📊 [ProjectLists] URL 파라미터 업데이트 완료:', updates);
   };
 
-  // 서버에서 이미 페이징된 데이터를 받으므로 projects를 직접 사용
+  // 서버에서 이미 페이징된 데이터를 받으므로 클라이언트 사이드 페이징 불필요
+  // const getCurrentPageProjects = () => {
+  //   const startIndex = (currentPage - 1) * itemsPerPage;
+  //   const endIndex = startIndex + itemsPerPage;
+  //   return filteredProjects.slice(startIndex, endIndex);
+  // };
 
-  // 서버에서 받은 페이징 정보 사용
-  const totalPages = Math.ceil(totalItems / itemsPerPage);
+  // 총 페이지 수 계산 (서버에서 받은 pagination 정보 사용)
+  const totalPages = Math.ceil(totalItems / getItemsPerPage());
 
   // 페이지 번호 배열 생성 (최대 5개씩 표시)
   const getPageNumbers = () => {
@@ -280,7 +442,7 @@ const ProjectLists = () => {
           <div className="flex items-center space-x-2">
             <span className="text-sm text-gray-700">페이지당 표시:</span>
             <select
-              value={itemsPerPage}
+              value={getItemsPerPage()}
               onChange={(e) => handleItemsPerPageChange(Number(e.target.value))}
               className="border border-gray-300 rounded-md px-3 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
             >
@@ -295,7 +457,10 @@ const ProjectLists = () => {
           <div className="text-sm text-gray-700">
             {totalItems > 0 ? (
               <>
-                {((currentPage - 1) * itemsPerPage) + 1} - {Math.min(currentPage * itemsPerPage, totalItems)} / {totalItems}개
+                {((currentPage - 1) * getItemsPerPage()) + 1} - {Math.min(currentPage * getItemsPerPage(), totalItems)} / {totalItems}개
+                <span className="ml-2 text-gray-500">
+                  (현재 페이지: {projects.length}개 표시)
+                </span>
               </>
             ) : (
               '0개'
@@ -360,33 +525,7 @@ const ProjectLists = () => {
     );
   };
 
-  // 검색 및 필터 관련 함수들
-  const handleSearch = () => {
-    // 검색 버튼 클릭 시 서버에서 데이터를 다시 가져옴 (useEffect에서 자동 처리)
-    setCurrentPage(1);
-    updateUrlParams({ 
-      page: 1, 
-      search: searchTerm, 
-      orderStatus: filterOrderStatus, 
-      shippingStatus: filterShippingStatus, 
-      warehouseStatus: filterWarehouseStatus 
-    });
-  };
-
-  const handleClearFilters = () => {
-    setSearchTerm('');
-    setFilterOrderStatus('all');
-    setFilterShippingStatus('all');
-    setFilterWarehouseStatus('all');
-    setCurrentPage(1);
-    updateUrlParams({ 
-      page: 1, 
-      search: '', 
-      orderStatus: 'all', 
-      shippingStatus: 'all', 
-      warehouseStatus: 'all' 
-    });
-  };
+  // 중복된 함수 제거됨 - 위에서 이미 정의됨
 
   // formatDate 함수는 utils/timezone에서 import하여 사용
 

@@ -1,11 +1,12 @@
 const mysql = require('mysql2/promise');
+const config = require('./environment-loader');
 
-// 데이터베이스 연결 설정
+// 데이터베이스 연결 설정 (환경별 설정 사용)
 const dbConfig = {
-  host: process.env.DB_HOST || 'labsemble.com',
-  user: process.env.DB_USER || 'venpus',
-  password: process.env.DB_PASSWORD || 'TianXian007!',
-  database: process.env.DB_NAME || 'labsemble',
+  host: config.DB_HOST,
+  user: config.DB_USER,
+  password: config.DB_PASSWORD,
+  database: config.DB_NAME,
   waitForConnections: true,
   connectionLimit: 10,
   queueLimit: 0,
@@ -14,8 +15,16 @@ const dbConfig = {
   // 추가 시간대 설정
   dateStrings: true, // 날짜를 문자열로 반환
   supportBigNumbers: true,
-  bigNumberStrings: true
+  bigNumberStrings: true,
+  // MariaDB/MySQL 인증 플러그인 설정
+  authPlugins: {
+    mysql_native_password: () => () => Buffer.alloc(0)
+  },
+  // MariaDB 호환성 설정
+  insecureAuth: true
 };
+
+console.log(`🔗 데이터베이스 연결 설정: ${config.DB_HOST}:${config.DB_NAME} (${config.NODE_ENV})`);
 
 // 연결 풀 생성
 const pool = mysql.createPool(dbConfig);

@@ -326,10 +326,28 @@ router.get('/', authMiddleware, async (req, res) => {
     let params = [];
     let whereConditions = [];
     
-    // Admin이 아닌 경우 사용자별 필터링
+    // 사용자 권한 확인 및 필터링 조건 설정
+    let isMjPartner = false;
+    
     if (!isAdmin) {
-      whereConditions.push('p.user_id = ?');
-      params.push(userId);
+      // MJ유통 파트너스 사용자인지 확인
+      const [userInfo] = await pool.execute(
+        'SELECT partner_name FROM users WHERE id = ?',
+        [userId]
+      );
+      
+      if (userInfo.length > 0 && userInfo[0].partner_name === 'MJ유통') {
+        // MJ유통 파트너스 사용자는 모든 프로젝트 조회 가능
+        isMjPartner = true;
+        console.log('🔍 [mj-project] MJ유통 파트너스 사용자 - 모든 프로젝트 조회 권한 부여');
+      } else {
+        // 일반 사용자는 자신의 프로젝트만 조회
+        whereConditions.push('p.user_id = ?');
+        params.push(userId);
+        console.log('🔍 [mj-project] 일반 사용자 - 자신의 프로젝트만 조회');
+      }
+    } else {
+      console.log('🔍 [mj-project] 관리자 - 모든 프로젝트 조회 권한');
     }
     
     // 검색 조건 추가
@@ -402,10 +420,20 @@ router.get('/', authMiddleware, async (req, res) => {
     let countParams = [];
     let countWhereConditions = [];
     
-    // Admin이 아닌 경우 사용자별 필터링
+    // 사용자 권한에 따른 총 개수 조회 필터링 조건 설정
     if (!isAdmin) {
-      countWhereConditions.push('p.user_id = ?');
-      countParams.push(userId);
+      if (isMjPartner) {
+        // MJ유통 파트너스 사용자는 모든 프로젝트 조회 가능
+        // 필터링 조건 추가하지 않음
+        console.log('🔍 [mj-project] 총 개수 조회 - MJ유통 파트너스 사용자 권한');
+      } else {
+        // 일반 사용자는 자신의 프로젝트만 조회
+        countWhereConditions.push('p.user_id = ?');
+        countParams.push(userId);
+        console.log('🔍 [mj-project] 총 개수 조회 - 일반 사용자 권한');
+      }
+    } else {
+      console.log('🔍 [mj-project] 총 개수 조회 - 관리자 권한');
     }
     
     // 검색 조건 추가

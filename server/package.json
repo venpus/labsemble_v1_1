@@ -4,15 +4,22 @@
   "description": "Manufacturing Website Backend Server",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js",
-    "dev": "nodemon index.js",
+    "start": "cross-env NODE_ENV=production node index.js",
+    "start:dev": "cross-env NODE_ENV=development node index.js",
+    "start:prod": "cross-env NODE_ENV=production node index.js",
+    "dev": "cross-env NODE_ENV=development nodemon index.js",
+    "dev:watch": "cross-env NODE_ENV=development nodemon --watch . --ext js,json index.js",
     "setup-env": "node setup-env.js",
-    "setup-env:dev": "node setup-env.js development",
-    "setup-env:prod": "node setup-env.js production",
-    "migrate": "node -e \"require('./config/database.js').runAllMigrations().then(() => process.exit(0)).catch(err => { console.error(err); process.exit(1); })\"",
-    "migrate:packing-list": "node run-packing-list-migration.js",
-    "migrate:stock": "node run-stock-migration.js",
-    "migrate:finance": "node run-finance-migration.js"
+    "setup-env:dev": "cross-env NODE_ENV=development node setup-env.js development",
+    "setup-env:prod": "cross-env NODE_ENV=production node setup-env.js production",
+    "migrate": "cross-env NODE_ENV=development node -e \"require('./config/database.js').runAllMigrations().then(() => process.exit(0)).catch(err => { console.error(err); process.exit(1); })\"",
+    "migrate:dev": "cross-env NODE_ENV=development node -e \"require('./config/database.js').runAllMigrations().then(() => process.exit(0)).catch(err => { console.error(err); process.exit(1); })\"",
+    "migrate:prod": "cross-env NODE_ENV=production node -e \"require('./config/database.js').runAllMigrations().then(() => process.exit(0)).catch(err => { console.error(err); process.exit(1); })\"",
+    "migrate:packing-list": "cross-env NODE_ENV=development node run-packing-list-migration.js",
+    "migrate:stock": "cross-env NODE_ENV=development node run-stock-migration.js",
+    "migrate:finance": "cross-env NODE_ENV=development node run-finance-migration.js",
+    "dev:win": "scripts\\dev.bat",
+    "prod:win": "scripts\\prod.bat"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
@@ -28,6 +35,7 @@
     "mysql2": "^3.14.3"
   },
   "devDependencies": {
-    "nodemon": "^3.0.2"
+    "nodemon": "^3.0.2",
+    "cross-env": "^7.0.3"
   }
 }

@@ -86,8 +86,12 @@ const ListSearch = ({
               value={searchTerm}
               onChange={(e) => {
                 setSearchTerm(e.target.value);
-                if (updateUrlParams) {
-                  updateUrlParams({ search: e.target.value });
+                // URL 파라미터는 즉시 업데이트하지 않음 (검색 실행 시에만)
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  onSearch();
                 }
               }}
               placeholder="프로젝트명 또는 공급자명을 입력하세요..."
@@ -112,8 +116,9 @@ const ListSearch = ({
               value={filterOrderStatus}
               onChange={(e) => {
                 setFilterOrderStatus(e.target.value);
-                if (updateUrlParams) {
-                  updateUrlParams({ orderStatus: e.target.value });
+                // 필터 변경 시 즉시 검색 실행
+                if (onSearch) {
+                  onSearch();
                 }
               }}
               className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
@@ -136,8 +141,9 @@ const ListSearch = ({
               value={filterShippingStatus}
               onChange={(e) => {
                 setFilterShippingStatus(e.target.value);
-                if (updateUrlParams) {
-                  updateUrlParams({ shippingStatus: e.target.value });
+                // 필터 변경 시 즉시 검색 실행
+                if (onSearch) {
+                  onSearch();
                 }
               }}
               className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
@@ -160,8 +166,9 @@ const ListSearch = ({
               value={filterWarehouseStatus}
               onChange={(e) => {
                 setFilterWarehouseStatus(e.target.value);
-                if (updateUrlParams) {
-                  updateUrlParams({ warehouseStatus: e.target.value });
+                // 필터 변경 시 즉시 검색 실행
+                if (onSearch) {
+                  onSearch();
                 }
               }}
               className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"

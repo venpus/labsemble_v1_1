@@ -4,8 +4,14 @@ const helmet = require('helmet');
 const morgan = require('morgan');
 const rateLimit = require('express-rate-limit');
 
+// 환경 설정 로드 (환경별 설정 사용)
+const config = require('./config/environment-loader');
+
+// JWT_SECRET을 환경 변수로 설정 (기존 코드와의 호환성을 위해)
+process.env.JWT_SECRET = config.JWT_SECRET;
+
 // 시간대 설정 - 한국 시간대(KST)로 통일
-process.env.TZ = 'Asia/Seoul';
+process.env.TZ = config.TZ;
 
 const { 
   testConnection, 
@@ -16,23 +22,10 @@ const {
   migratePaymentColumns,
   runAllMigrations
 } = require('./config/database');
-// 환경변수 로드
-require('dotenv').config();
-
-// 필수 환경변수 기본값 설정
-if (!process.env.JWT_SECRET) {
-  console.warn('⚠️  JWT_SECRET 환경변수가 설정되지 않았습니다. 기본값을 사용합니다.');
-  process.env.JWT_SECRET = 'default-jwt-secret-key-for-development-only-change-in-production';
-}
-
-if (!process.env.NODE_ENV) {
-  process.env.NODE_ENV = 'development';
-  console.log('ℹ️  NODE_ENV가 설정되지 않아 development로 설정됩니다.');
-}
 
 const app = express();
-const PORT = process.env.PORT || 5000;
-const NODE_ENV = process.env.NODE_ENV || 'development';
+const PORT = config.PORT;
+const NODE_ENV = config.NODE_ENV;
 
 // 서버 타임아웃 설정 (30초)
 const serverTimeout = 30000;
@@ -43,11 +36,12 @@ console.log(`🌍 서버 환경: ${NODE_ENV} (${isProduction ? '상용' : '개�
 
 // Middleware
 app.use(helmet());
-// CORS 설정 - 개발환경과 상용환경 모두 지원
+// CORS 설정 - 환경별 설정 사용
 const corsOptions = {
   origin: function (origin, callback) {
-    // 개발환경과 상용환경 모두 지원
+    // 환경별 CORS 설정 사용
     const allowedOrigins = [
+      config.CORS_ORIGIN,
       'http://localhost:3000', 
       'http://127.0.0.1:3000',
       'http://localhost:5000',  // 개발서버 자체 origin 허용

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { toast } from 'react-hot-toast';
-import { ArrowLeft, CreditCard, DollarSign, Calendar, Truck, Package, Box, AlertCircle, CheckCircle, Clock, Save } from 'lucide-react';
+import { ArrowLeft, CreditCard, DollarSign, Calendar, Truck, Package, Box, AlertCircle, CheckCircle, Clock, Save, XCircle } from 'lucide-react';
 
 const LogisticPayment = () => {
   const navigate = useNavigate();
@@ -144,6 +144,56 @@ const LogisticPayment = () => {
       await fetchPaymentData();
       toast.success('데이터가 새로고침되었습니다.');
     }
+  };
+
+  // 모든 물류비 결제 취소 처리
+  const handleCancelAllPayments = () => {
+    if (paymentData.length === 0) {
+      return;
+    }
+
+    // 모든 결제 상태를 미결제로 변경
+    const updatedData = paymentData.map(item => ({
+      ...item,
+      payment_status: 'unpaid'
+    }));
+    
+    setPaymentData(updatedData);
+    
+    // 요약 정보 업데이트
+    const newPaidCount = 0;
+    const newUnpaidCount = updatedData.length;
+    
+    setSummary(prev => ({
+      ...prev,
+      paidCount: newPaidCount,
+      unpaidCount: newUnpaidCount
+    }));
+  };
+
+  // 모든 물류비 결제 완료 처리
+  const handleCompleteAllPayments = () => {
+    if (paymentData.length === 0) {
+      return;
+    }
+
+    // 모든 결제 상태를 결제완료로 변경
+    const updatedData = paymentData.map(item => ({
+      ...item,
+      payment_status: 'paid'
+    }));
+    
+    setPaymentData(updatedData);
+    
+    // 요약 정보 업데이트
+    const newPaidCount = updatedData.length;
+    const newUnpaidCount = 0;
+    
+    setSummary(prev => ({
+      ...prev,
+      paidCount: newPaidCount,
+      unpaidCount: newUnpaidCount
+    }));
   };
 
   // 뒤로 가기
@@ -313,8 +363,28 @@ const LogisticPayment = () => {
     }
   };
 
-  // 컴포넌트 마운트 시 데이터 가져오기
+  // 사용자 권한 확인 함수
+  const checkUserRole = () => {
+    try {
+      const token = localStorage.getItem('token');
+      if (token) {
+        const payload = JSON.parse(atob(token.split('.')[1]));
+        const isAdmin = payload.isAdmin || false;
+        console.log('🔐 [LogisticPayment] 사용자 권한 확인:', { isAdmin, payload });
+        setIsAdmin(isAdmin);
+      } else {
+        console.log('🔐 [LogisticPayment] 토큰이 없습니다.');
+        setIsAdmin(false);
+      }
+    } catch (error) {
+      console.error('❌ [LogisticPayment] 사용자 권한 확인 오류:', error);
+      setIsAdmin(false);
+    }
+  };
+
+  // 컴포넌트 마운트 시 권한 확인 및 데이터 가져오기
   useEffect(() => {
+    checkUserRole();
     if (selectedDate) {
       fetchPaymentData();
     }
@@ -402,12 +472,18 @@ const LogisticPayment = () => {
               <Calendar className="w-5 h-5 text-blue-600" />
               <span className="text-blue-800 font-medium">선택된 출고일자: {selectedDate}</span>
             </div>
-            <div className="text-sm text-blue-600">
-              총 {summary.totalProjects}개 프로젝트
+            <div className="flex items-center space-x-4">
+              <div className="text-sm text-blue-600">
+                총 {summary.totalProjects}개 프로젝트
+              </div>
+              <div className="text-xs px-2 py-1 rounded-full bg-gray-100 text-gray-600">
+                권한: {isAdmin ? 'Admin' : 'User'}
+              </div>
             </div>
           </div>
         </div>
       )}
+
 
       {/* 새로고침 버튼 */}
       <div className="mb-4 flex justify-between items-center">
@@ -415,14 +491,42 @@ const LogisticPayment = () => {
           {selectedDate} 출고일자의 물류 결제 현황
         </div>
         <div className="flex space-x-3">
-          <button
-            onClick={handleSave}
-            disabled={!selectedDate || saving}
-            className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <Save className="w-4 h-4" />
-            {saving ? '저장 중...' : '전체저장'}
-          </button>
+          {/* Admin 권한 사용자에게만 표시 */}
+          {isAdmin && (
+            <button
+              onClick={handleCancelAllPayments}
+              disabled={!selectedDate || saving || paymentData.length === 0}
+              className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              title="모든 결제완료 물류비를 일괄 미결제 처리합니다 (Admin 전용)"
+            >
+              <XCircle className="w-4 h-4" />
+              모든 물류비 결제 취소
+            </button>
+          )}
+          {/* Admin 권한 사용자에게만 표시 */}
+          {isAdmin && (
+            <button
+              onClick={handleCompleteAllPayments}
+              disabled={!selectedDate || saving || paymentData.length === 0}
+              className="px-4 py-2 bg-purple-600 text-white rounded hover:bg-purple-700 transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              title="모든 미결제 물류비를 일괄 결제완료 처리합니다 (Admin 전용)"
+            >
+              <CheckCircle className="w-4 h-4" />
+              모든 물류비 결제 완료
+            </button>
+          )}
+          {/* Admin 권한 사용자에게만 표시 */}
+          {isAdmin && (
+            <button
+              onClick={handleSave}
+              disabled={!selectedDate || saving}
+              className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              title="모든 변경사항을 서버에 저장합니다 (Admin 전용)"
+            >
+              <Save className="w-4 h-4" />
+              {saving ? '저장 중...' : '전체저장'}
+            </button>
+          )}
           <button
             onClick={handleRefresh}
             disabled={!selectedDate}
