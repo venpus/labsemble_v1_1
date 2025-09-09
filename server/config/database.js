@@ -1564,6 +1564,7 @@ async function initializeDatabase() {
       console.error('❌ app_versions 테이블 마이그레이션 실패:', appVersionsMigrationResult.error);
     }
     
+    
     console.log('🎉 모든 마이그레이션이 완료되었습니다!');
     
   } catch (error) {
@@ -1602,6 +1603,7 @@ const testConnection = async () => {
     return false;
   }
 };
+
 
 module.exports = {
   pool,

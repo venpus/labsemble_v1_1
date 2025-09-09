@@ -35,7 +35,9 @@ const isProduction = NODE_ENV === 'production';
 console.log(`🌍 서버 환경: ${NODE_ENV} (${isProduction ? '상용' : '개발'})`);
 
 // Middleware
-app.use(helmet());
+app.use(helmet({
+  contentSecurityPolicy: false // CSP 비활성화로 이미지 로딩 문제 해결
+}));
 // CORS 설정 - 환경별 설정 사용
 const corsOptions = {
   origin: function (origin, callback) {
@@ -88,8 +90,29 @@ if (isProduction) {
 } else {
   app.use(morgan('dev')); // 개발환경: 상세 로그
 }
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+// JSON 및 URL 파싱 미들웨어 - shop 라우트 제외
+app.use((req, res, next) => {
+  // shop 관련 라우트 확인 (api/shop 또는 shop으로 시작)
+  const isShopRoute = req.path.startsWith('/api/shop') || req.path.startsWith('/shop');
+  const isPostOrPut = req.method === 'POST' || req.method === 'PUT';
+  
+  if (isShopRoute && isPostOrPut) {
+    // shop 라우트의 POST/PUT 요청은 multer가 처리하므로 JSON/URL 파싱 건너뛰기
+    console.log('🔍 [MIDDLEWARE] shop 라우트 JSON/URL 파싱 건너뛰기:', req.path, req.method);
+    next();
+  } else {
+    // 다른 모든 요청은 JSON 파싱 적용
+    console.log('🔍 [MIDDLEWARE] JSON 파싱 적용:', req.path, req.method);
+    express.json({ limit: '10mb' })(req, res, (err) => {
+      if (err) {
+        console.error('❌ [MIDDLEWARE] JSON 파싱 오류:', err.message);
+        return next(err);
+      }
+      // JSON 파싱 후 URL 파싱 적용
+      express.urlencoded({ extended: true, limit: '10mb' })(req, res, next);
+    });
+  }
+});
 
 // 정적 파일 제공 (업로드된 이미지) - CORS 헤더 추가
 app.use('/uploads', (req, res, next) => {
@@ -132,6 +155,7 @@ app.use('/api/logistic-payment', require('./routes/logistic-payment'));
 app.use('/api/payment-request', require('./routes/payment-request'));
 app.use('/api/mobile/finance', require('./routes/mobile-finance'));
 app.use('/api/app-update', require('./routes/app-update'));
+
 // app.use('/api/products', require('./routes/products'));
 // app.use('/api/orders', require('./routes/orders'));
 // app.use('/api/quotations', require('./routes/quotations'));

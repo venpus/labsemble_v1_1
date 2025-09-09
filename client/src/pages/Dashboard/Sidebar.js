@@ -15,7 +15,7 @@ import {
   ChevronDown,
   ChevronRight,
   Smartphone,
-  Upload
+  Upload,
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { versionInfo } from '../../config/version';
@@ -103,7 +103,7 @@ const Sidebar = ({ selectedMenu, setSelectedMenu }) => {
         icon: Smartphone,
         path: '/dashboard/admin/app-update',
         description: '모바일 앱 버전 관리 및 APK 업로드'
-      }
+      },
     ]
   };
 

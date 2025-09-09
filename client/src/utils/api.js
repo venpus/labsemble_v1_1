@@ -55,13 +55,13 @@ const fetchWithRetry = async (url, options, retries = RETRY_ATTEMPTS) => {
 };
 
 // 인증 헤더가 포함된 fetch 함수
-export const apiRequest = async (endpoint, options = {}) => {
+export const apiRequest = async (endpoint, options = {}, isFormData = false) => {
   const url = getApiUrl(endpoint);
   const token = localStorage.getItem('token');
   
   const defaultOptions = {
     headers: {
-      'Content-Type': 'application/json',
+      ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
       ...(token && { 'Authorization': `Bearer ${token}` }),
       ...options.headers,
     },
@@ -94,20 +94,30 @@ export const apiGet = (endpoint, options = {}) => {
 
 // POST 요청 헬퍼
 export const apiPost = (endpoint, data, options = {}) => {
+  const isFormData = data instanceof FormData;
   return apiRequest(endpoint, {
     ...options,
     method: 'POST',
-    body: JSON.stringify(data),
-  });
+    body: isFormData ? data : JSON.stringify(data),
+    headers: {
+      ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
+      ...options.headers,
+    },
+  }, isFormData);
 };
 
 // PUT 요청 헬퍼
 export const apiPut = (endpoint, data, options = {}) => {
+  const isFormData = data instanceof FormData;
   return apiRequest(endpoint, {
     ...options,
     method: 'PUT',
-    body: JSON.stringify(data),
-  });
+    body: isFormData ? data : JSON.stringify(data),
+    headers: {
+      ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
+      ...options.headers,
+    },
+  }, isFormData);
 };
 
 // DELETE 요청 헬퍼

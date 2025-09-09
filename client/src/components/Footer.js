@@ -44,16 +44,16 @@ const Footer = () => {
                 <span className="text-gray-300">PCB 제조</span>
               </li>
               <li>
-                <span className="text-gray-300">PCB 조립</span>
+                <span className="text-gray-300">SMT/조립</span>
               </li>
               <li>
                 <span className="text-gray-300">3D 프린팅</span>
               </li>
               <li>
-                <span className="text-gray-300">CNC 가공</span>
+                <span className="text-gray-300">회로 아트웍서비스</span>
               </li>
               <li>
-                <span className="text-gray-300">레이아웃 서비스</span>
+                <span className="text-gray-300">금형/사출</span>
               </li>
             </ul>
           </div>
@@ -64,15 +64,6 @@ const Footer = () => {
             <ul className="space-y-2">
               <li>
                 <span className="text-gray-300">회사소개</span>
-              </li>
-              <li>
-                <span className="text-gray-300">채용정보</span>
-              </li>
-              <li>
-                <span className="text-gray-300">뉴스</span>
-              </li>
-              <li>
-                <span className="text-gray-300">문의하기</span>
               </li>
               <li>
                 <span className="text-gray-300">고객지원</span>
