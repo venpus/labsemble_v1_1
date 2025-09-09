@@ -281,7 +281,14 @@ router.get('/', authMiddleware, async (req, res) => {
   try {
     const userId = req.user.userId;
     const isAdmin = req.user.isAdmin;
-    const { search, page = 1, limit = 10 } = req.query;
+    const { 
+      search, 
+      page = 1, 
+      limit = 10, 
+      orderStatus, 
+      shippingStatus, 
+      warehouseStatus 
+    } = req.query;
     
     let sql = `
       SELECT 
@@ -332,6 +339,44 @@ router.get('/', authMiddleware, async (req, res) => {
       params.push(searchTerm, searchTerm);
     }
     
+    // 발주상태 필터 추가
+    if (orderStatus && orderStatus !== 'all') {
+      if (orderStatus === 'completed') {
+        whereConditions.push('p.is_order_completed = 1');
+      } else if (orderStatus === 'waiting') {
+        whereConditions.push('p.is_order_completed = 0');
+      }
+    }
+    
+    // 공장출고 상태 필터 추가
+    if (shippingStatus && shippingStatus !== 'all') {
+      if (shippingStatus === '미설정') {
+        whereConditions.push('(p.factory_shipping_status IS NULL OR p.factory_shipping_status = "")');
+      } else {
+        whereConditions.push('p.factory_shipping_status = ?');
+        params.push(shippingStatus);
+      }
+    }
+    
+    // 입고상태 필터 추가 (서브쿼리로 warehouse_quantity 계산)
+    if (warehouseStatus && warehouseStatus !== 'all') {
+      const warehouseSubquery = `
+        (SELECT COALESCE(SUM(quantity), 0) FROM warehouse_entries WHERE project_id = p.id)
+      `;
+      
+      switch (warehouseStatus) {
+        case '입고완료':
+          whereConditions.push(`(${warehouseSubquery} >= p.quantity AND ${warehouseSubquery} > 0)`);
+          break;
+        case '입고중':
+          whereConditions.push(`(p.quantity > ${warehouseSubquery} AND ${warehouseSubquery} > 0)`);
+          break;
+        case '입고 대기':
+          whereConditions.push(`${warehouseSubquery} = 0`);
+          break;
+      }
+    }
+    
     // WHERE 조건 적용
     if (whereConditions.length > 0) {
       sql += ' WHERE ' + whereConditions.join(' AND ');
@@ -368,6 +413,44 @@ router.get('/', authMiddleware, async (req, res) => {
       const searchTerm = `%${search.trim()}%`;
       countWhereConditions.push('(p.project_name LIKE ? OR p.supplier_name LIKE ?)');
       countParams.push(searchTerm, searchTerm);
+    }
+    
+    // 발주상태 필터 추가
+    if (orderStatus && orderStatus !== 'all') {
+      if (orderStatus === 'completed') {
+        countWhereConditions.push('p.is_order_completed = 1');
+      } else if (orderStatus === 'waiting') {
+        countWhereConditions.push('p.is_order_completed = 0');
+      }
+    }
+    
+    // 공장출고 상태 필터 추가
+    if (shippingStatus && shippingStatus !== 'all') {
+      if (shippingStatus === '미설정') {
+        countWhereConditions.push('(p.factory_shipping_status IS NULL OR p.factory_shipping_status = "")');
+      } else {
+        countWhereConditions.push('p.factory_shipping_status = ?');
+        countParams.push(shippingStatus);
+      }
+    }
+    
+    // 입고상태 필터 추가 (서브쿼리로 warehouse_quantity 계산)
+    if (warehouseStatus && warehouseStatus !== 'all') {
+      const warehouseSubquery = `
+        (SELECT COALESCE(SUM(quantity), 0) FROM warehouse_entries WHERE project_id = p.id)
+      `;
+      
+      switch (warehouseStatus) {
+        case '입고완료':
+          countWhereConditions.push(`(${warehouseSubquery} >= p.quantity AND ${warehouseSubquery} > 0)`);
+          break;
+        case '입고중':
+          countWhereConditions.push(`(p.quantity > ${warehouseSubquery} AND ${warehouseSubquery} > 0)`);
+          break;
+        case '입고 대기':
+          countWhereConditions.push(`${warehouseSubquery} = 0`);
+          break;
+      }
     }
     
     // WHERE 조건 적용

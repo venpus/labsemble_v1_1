@@ -28,7 +28,6 @@ const ProjectLists = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
   const [totalItems, setTotalItems] = useState(0);
-  const [filteredProjects, setFilteredProjects] = useState([]);
   const [filterOrderStatus, setFilterOrderStatus] = useState('all');
   const [filterShippingStatus, setFilterShippingStatus] = useState('all');
   const [filterWarehouseStatus, setFilterWarehouseStatus] = useState('all');
@@ -79,14 +78,14 @@ const ProjectLists = () => {
     if (isAuthenticated) {
       fetchProjects();
     }
-  }, [isAuthenticated, searchTerm, currentPage, itemsPerPage]);
+  }, [isAuthenticated, searchTerm, currentPage, itemsPerPage, filterOrderStatus, filterShippingStatus, filterWarehouseStatus]);
 
-  // 검색어가 변경되면 첫 페이지로 이동
+  // 검색어나 필터가 변경되면 첫 페이지로 이동
   useEffect(() => {
-    if (searchTerm !== '') {
+    if (searchTerm !== '' || filterOrderStatus !== 'all' || filterShippingStatus !== 'all' || filterWarehouseStatus !== 'all') {
       setCurrentPage(1);
     }
-  }, [searchTerm]);
+  }, [searchTerm, filterOrderStatus, filterShippingStatus, filterWarehouseStatus]);
 
   // itemsPerPage가 변경되면 현재 페이지를 1로 리셋 (URL 파라미터가 없을 때만)
   useEffect(() => {
@@ -97,82 +96,19 @@ const ProjectLists = () => {
   }, [itemsPerPage, searchParams]);
 
 
-  // 프로젝트 데이터가 변경되면 필터링된 목록 업데이트
-  useEffect(() => {
-    applyFilters();
-  }, [projects, searchTerm, filterOrderStatus, filterShippingStatus, filterWarehouseStatus, searchParams]);
-
-  // 검색 및 필터링 적용
-  const applyFilters = () => {
-    let filtered = [...projects];
-
-    // 프로젝트명 검색은 서버에서 처리되므로 클라이언트에서는 제거
-
-    // 발주상태 필터
-    if (filterOrderStatus !== 'all') {
-      if (filterOrderStatus === 'completed') {
-        filtered = filtered.filter(project => project.is_order_completed === 1);
-      } else if (filterOrderStatus === 'waiting') {
-        filtered = filtered.filter(project => project.is_order_completed === 0);
-      }
-    }
-
-    // 공장출고 필터
-    if (filterShippingStatus !== 'all') {
-      if (filterShippingStatus === '미설정') {
-        filtered = filtered.filter(project => !project.factory_shipping_status);
-      } else {
-        filtered = filtered.filter(project => project.factory_shipping_status === filterShippingStatus);
-      }
-    }
-
-    // 입고상태 필터
-    if (filterWarehouseStatus !== 'all') {
-      filtered = filtered.filter(project => {
-        const projectQuantity = Number(project.quantity) || 0;
-        const warehouseQuantity = Number(project.warehouse_quantity) || 0;
-        
-        switch (filterWarehouseStatus) {
-          case '입고완료':
-            return (projectQuantity === warehouseQuantity || projectQuantity < warehouseQuantity) && warehouseQuantity > 0;
-          case '입고중':
-            return projectQuantity > warehouseQuantity && warehouseQuantity > 0;
-          case '입고 대기':
-            return warehouseQuantity === 0;
-          default:
-            return true;
-        }
-      });
-    }
-
-    setFilteredProjects(filtered);
-    setTotalItems(filtered.length);
-    
-    // URL 파라미터가 없을 때만 첫 페이지로 이동 (검색/필터링 시)
-    const page = searchParams.get('page');
-    console.log('🔍 [ProjectLists] applyFilters 실행:', { 
-      filteredCount: filtered.length, 
-      hasPageParam: !!page, 
-      currentPage: currentPage,
-      searchParams: searchParams.toString()
-    });
-    
-    if (!page) {
-      console.log('📄 [ProjectLists] 페이지 파라미터 없음, 1페이지로 리셋');
-      setCurrentPage(1);
-    } else {
-      console.log('📄 [ProjectLists] 페이지 파라미터 있음, 페이지 유지:', page);
-    }
-  };
+  // 서버사이드 필터링을 사용하므로 클라이언트사이드 필터링 로직 제거
 
   const fetchProjects = async () => {
     try {
       setLoading(true);
       const token = localStorage.getItem('token');
       
-      // URL 파라미터 구성
+      // URL 파라미터 구성 (서버사이드 필터링 포함)
       const params = new URLSearchParams();
       if (searchTerm) params.append('search', searchTerm);
+      if (filterOrderStatus !== 'all') params.append('orderStatus', filterOrderStatus);
+      if (filterShippingStatus !== 'all') params.append('shippingStatus', filterShippingStatus);
+      if (filterWarehouseStatus !== 'all') params.append('warehouseStatus', filterWarehouseStatus);
       params.append('page', currentPage);
       params.append('limit', itemsPerPage);
       
@@ -191,7 +127,6 @@ const ProjectLists = () => {
       if (data.success) {
         // 서버에서 이미 필터링된 프로젝트를 받음
         setProjects(data.projects);
-        setFilteredProjects(data.projects);
         setTotalItems(data.pagination?.total || data.projects.length);
       } else {
         setError(data.message || '프로젝트 목록을 불러오는데 실패했습니다.');
@@ -311,14 +246,9 @@ const ProjectLists = () => {
     updateUrlParams({ page: 1, limit: newItemsPerPage });
   };
 
-  // 현재 페이지의 프로젝트들 계산
-  const getCurrentPageProjects = () => {
-    const startIndex = (currentPage - 1) * itemsPerPage;
-    const endIndex = startIndex + itemsPerPage;
-    return filteredProjects.slice(startIndex, endIndex);
-  };
+  // 서버에서 이미 페이징된 데이터를 받으므로 projects를 직접 사용
 
-  // 총 페이지 수 계산
+  // 서버에서 받은 페이징 정보 사용
   const totalPages = Math.ceil(totalItems / itemsPerPage);
 
   // 페이지 번호 배열 생성 (최대 5개씩 표시)
@@ -432,7 +362,7 @@ const ProjectLists = () => {
 
   // 검색 및 필터 관련 함수들
   const handleSearch = () => {
-    // 검색 버튼 클릭 시 필터 적용 (이미 useEffect에서 자동으로 처리됨)
+    // 검색 버튼 클릭 시 서버에서 데이터를 다시 가져옴 (useEffect에서 자동 처리)
     setCurrentPage(1);
     updateUrlParams({ 
       page: 1, 
@@ -735,7 +665,7 @@ const ProjectLists = () => {
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
-                  {getCurrentPageProjects().map((project) => (
+                  {projects.map((project) => (
                                       <tr key={project.id} className="hover:bg-gray-50">
                     <td className="px-6 py-4">
                         <div className="flex items-center text-sm text-gray-900">
