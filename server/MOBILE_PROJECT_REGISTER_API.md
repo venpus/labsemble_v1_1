@@ -180,3 +180,4 @@ const result = await response.json();
 - `❌ [mobile-project]`: 에러 로그
 
 
+

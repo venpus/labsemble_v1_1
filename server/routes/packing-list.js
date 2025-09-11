@@ -148,23 +148,26 @@ router.get('/calendar/logistics-events', auth, async (req, res) => {
   try {
     const query = `
       SELECT 
-        id,
-        packing_code,
-        product_name,
-        product_sku,
-        product_image,
-        box_count,
-        packaging_method,
-        packaging_count,
-        quantity_per_box,
-        pl_date,
-        logistic_company,
-        project_id,
-        created_at,
-        updated_at
-      FROM mj_packing_list 
-      WHERE pl_date IS NOT NULL
-      ORDER BY pl_date DESC, created_at DESC
+        pl.id,
+        pl.packing_code,
+        pl.product_name,
+        pl.product_sku,
+        pl.product_image,
+        pl.box_count,
+        pl.packaging_method,
+        pl.packaging_count,
+        pl.quantity_per_box,
+        pl.pl_date,
+        pl.logistic_company,
+        pl.project_id,
+        pl.client_product_id,
+        pl.created_at,
+        pl.updated_at,
+        p.project_name
+      FROM mj_packing_list pl
+      LEFT JOIN mj_project p ON pl.project_id = p.id
+      WHERE pl.pl_date IS NOT NULL
+      ORDER BY pl.pl_date DESC, pl.created_at DESC
     `;
     
     const [rows] = await connection.execute(query);
@@ -440,9 +443,13 @@ router.get('/', auth, async (req, res) => {
   
   try {
     const [rows] = await connection.execute(
-      `SELECT * FROM mj_packing_list 
-       WHERE is_deleted = FALSE
-       ORDER BY created_at DESC`
+      `SELECT 
+        pl.*,
+        p.project_name
+       FROM mj_packing_list pl
+       LEFT JOIN mj_project p ON pl.project_id = p.id
+       WHERE pl.is_deleted = FALSE
+       ORDER BY pl.created_at DESC`
     );
     
     res.json({

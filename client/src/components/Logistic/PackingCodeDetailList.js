@@ -164,15 +164,28 @@ const PackingCodeDetailList = () => {
             box_count: item.box_count,
             product_name: item.product_name,
             product_sku: item.product_sku,
+            project_id: item.project_id,
+            project_name: item.project_name,
             client_product_id: item.client_product_id,
             pl_date: item.pl_date
           });
 
-          // 제품 키 생성 (client_product_id 우선, 없으면 제품명 + SKU + ID)
-          const productKey = item.client_product_id || 
-            `${item.product_name}_${item.product_sku}_${item.id}`;
-          
-          const existingProduct = acc.find(product => product.product_key === productKey);
+          // 같은 제품인지 판단
+          // 1. project_id가 있는 경우: project_id, product_name, product_sku가 모두 같으면 같은 제품
+          // 2. project_id가 없는 경우: product_name만 같으면 같은 제품 (SKU 무관)
+          const existingProduct = acc.find(product => {
+            if (item.project_id && product.project_id) {
+              // 둘 다 project_id가 있는 경우: project_id, product_name, product_sku 모두 비교
+              return product.project_id === item.project_id &&
+                     product.product_name === item.product_name &&
+                     product.product_sku === item.product_sku;
+            } else if (!item.project_id && !product.project_id) {
+              // 둘 다 project_id가 없는 경우: product_name만 비교 (SKU는 무시)
+              return product.product_name === item.product_name;
+            }
+            // 하나만 project_id가 있는 경우: 다른 제품으로 처리
+            return false;
+          });
           
           if (existingProduct) {
             // 기존 제품에 포장코드 정보 추가
@@ -192,11 +205,12 @@ const PackingCodeDetailList = () => {
             // 새로운 제품 그룹 생성
             const itemQuantity = (item.box_count || 0) * (item.packaging_count || 0) * (item.packaging_method || 0);
             acc.push({
-              product_key: productKey,
               product_name: item.product_name,
               product_sku: item.product_sku,
               product_image: item.product_image,
-              client_product_id: item.client_product_id, // client_product_id 추가
+              project_id: item.project_id,
+              project_name: item.project_name,
+              client_product_id: item.client_product_id,
               total_quantity: itemQuantity,
               packing_codes: [{
                 packing_code: item.packing_code,
@@ -212,13 +226,38 @@ const PackingCodeDetailList = () => {
         // 제품명 순으로 정렬
         groupedData.sort((a, b) => a.product_name.localeCompare(b.product_name));
         
-        console.log(' [PackingCodeDetailList] 그룹화된 데이터:', {
+        // 중복 제품 확인 (디버깅용)
+        const duplicateCheck = {};
+        groupedData.forEach(group => {
+          // project_id가 있으면 project_id + product_name + product_sku로 키 생성
+          // project_id가 없으면 product_name만으로 키 생성 (SKU 무관)
+          const key = group.project_id ? 
+            `${group.project_id}_${group.product_name}_${group.product_sku}` : 
+            `no-project_${group.product_name}`;
+            
+          if (duplicateCheck[key]) {
+            console.warn('⚠️ [PackingCodeDetailList] 중복 제품 발견:', {
+              product_name: group.product_name,
+              product_sku: group.product_sku,
+              project_id: group.project_id,
+              comparison_rule: group.project_id ? 'project_id + product_name + product_sku' : 'product_name only',
+              existing_group: duplicateCheck[key]
+            });
+          } else {
+            duplicateCheck[key] = group;
+          }
+        });
+        
+        console.log('✅ [PackingCodeDetailList] 그룹화된 데이터:', {
           groupCount: groupedData.length,
           groups: groupedData.map(group => ({
-            product_key: group.product_key,
             product_name: group.product_name,
+            product_sku: group.product_sku,
+            project_id: group.project_id,
+            project_name: group.project_name,
             total_quantity: group.total_quantity,
-            packing_codes_count: group.packing_codes.length
+            packing_codes_count: group.packing_codes.length,
+            packing_codes: group.packing_codes.map(pc => pc.packing_code)
           }))
         });
         
@@ -603,7 +642,10 @@ const PackingCodeDetailList = () => {
                   const totalBoxes = item.packing_codes.reduce((sum, pc) => sum + pc.box_count, 0);
                   
                   return (
-                    <tr key={item.product_key} className="hover:bg-gray-50 transition-colors">
+                    <tr key={item.project_id ? 
+                      `${item.project_id}_${item.product_name}_${item.product_sku}` : 
+                      `no-project_${item.product_name}`} 
+                      className="hover:bg-gray-50 transition-colors">
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                         {index + 1}
                       </td>
@@ -625,7 +667,10 @@ const PackingCodeDetailList = () => {
                               {item.product_name}
                             </span>
                             <div className="text-xs text-gray-500 mt-1">
-                              SKU: {item.product_sku}
+                              <div>SKU: {item.product_sku}</div>
+                              {item.project_id && (
+                                <div>프로젝트: {item.project_name || `ID ${item.project_id}`}</div>
+                              )}
                             </div>
                           </div>
                         </div>

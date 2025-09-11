@@ -10,3 +10,4 @@ CREATE INDEX idx_mj_packing_list_deleted_at ON mj_packing_list(deleted_at);
 
 -- 기존 삭제된 레코드가 있다면 복구 (선택사항)
 -- UPDATE mj_packing_list SET is_deleted = FALSE, deleted_at = NULL, deleted_by = NULL;
+

@@ -48,8 +48,12 @@ const MJPackingList = () => {
           const existingGroup = acc.find(group => group.pl_date === plDate);
           
           if (existingGroup) {
-            // 기존 그룹에 상품명 추가 (client_product_id를 고려한 고유 제품 체크)
-            const productKey = item.client_product_id || `${item.product_name}_${item.product_sku}`;
+            // 기존 그룹에 상품명 추가 (고유 제품 체크)
+            // project_id가 있으면 project_id + product_name + product_sku로 키 생성
+            // project_id가 없으면 product_name만으로 키 생성 (SKU 무관)
+            const productKey = item.project_id ? 
+              `${item.project_id}_${item.product_name}_${item.product_sku}` : 
+              `no-project_${item.product_name}`;
             const existingProductKey = existingGroup.product_keys?.find(key => key === productKey);
             
             if (!existingProductKey) {
