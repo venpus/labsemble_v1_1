@@ -3,6 +3,144 @@ const router = express.Router();
 const { pool } = require('../config/database');
 const auth = require('../middleware/auth');
 
+// 잔금 지급일 자동 설정 함수
+async function updateBalanceDueDate(connection, projectId, plDate) {
+  if (!projectId || !plDate) {
+    return; // project_id나 pl_date가 없으면 처리하지 않음
+  }
+
+  try {
+    // pl_date + 3일 계산
+    const newBalanceDueDate = new Date(plDate);
+    newBalanceDueDate.setDate(newBalanceDueDate.getDate() + 3);
+    const formattedNewDate = newBalanceDueDate.toISOString().split('T')[0];
+
+    // 현재 프로젝트의 balance_due_date 조회
+    const [projectRows] = await connection.execute(
+      'SELECT balance_due_date FROM mj_project WHERE id = ?',
+      [projectId]
+    );
+
+    if (projectRows.length === 0) {
+      return; // 프로젝트가 존재하지 않으면 처리하지 않음
+    }
+
+    const currentBalanceDueDate = projectRows[0].balance_due_date;
+
+    let shouldUpdate = false;
+    let finalBalanceDueDate = null;
+
+    if (currentBalanceDueDate === null) {
+      // 조건 1: 잔금 지급일이 null이면 pl_date + 3일로 설정
+      shouldUpdate = true;
+      finalBalanceDueDate = formattedNewDate;
+    } else {
+      // 조건 2: 잔금 지급일이 있으면 비교
+      const currentDate = new Date(currentBalanceDueDate);
+      const newDate = new Date(formattedNewDate);
+      
+      if (newDate < currentDate) {
+        // pl_date + 3일이 더 이른 날짜면 업데이트
+        shouldUpdate = true;
+        finalBalanceDueDate = formattedNewDate;
+      }
+      // 그렇지 않으면 기존 데이터 유지 (업데이트하지 않음)
+    }
+
+    if (shouldUpdate) {
+      // 1. mj_project 테이블의 balance_due_date 업데이트
+      await connection.execute(
+        'UPDATE mj_project SET balance_due_date = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+        [finalBalanceDueDate, projectId]
+      );
+
+      // 2. mj_project 테이블의 payment_due_dates JSON 업데이트
+      const [currentPaymentDueDates] = await connection.execute(
+        'SELECT payment_due_dates FROM mj_project WHERE id = ?',
+        [projectId]
+      );
+
+      let updatedPaymentDueDates = {};
+      if (currentPaymentDueDates[0]?.payment_due_dates) {
+        try {
+          updatedPaymentDueDates = JSON.parse(currentPaymentDueDates[0].payment_due_dates);
+        } catch (error) {
+          console.log('기존 payment_due_dates JSON 파싱 오류, 빈 객체로 초기화');
+          updatedPaymentDueDates = {};
+        }
+      }
+
+      // balance 필드 업데이트
+      updatedPaymentDueDates.balance = finalBalanceDueDate;
+
+      await connection.execute(
+        'UPDATE mj_project SET payment_due_dates = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+        [JSON.stringify(updatedPaymentDueDates), projectId]
+      );
+
+      // 3. mj_project_payments 테이블의 payment_dates JSON 업데이트
+      const [currentPaymentDates] = await connection.execute(
+        'SELECT payment_dates FROM mj_project_payments WHERE project_id = ?',
+        [projectId]
+      );
+
+      if (currentPaymentDates.length > 0) {
+        let updatedPaymentDates = {};
+        if (currentPaymentDates[0]?.payment_dates) {
+          try {
+            updatedPaymentDates = JSON.parse(currentPaymentDates[0].payment_dates);
+          } catch (error) {
+            console.log('기존 payment_dates JSON 파싱 오류, 빈 객체로 초기화');
+            updatedPaymentDates = {};
+          }
+        }
+
+        // balance 필드 업데이트
+        updatedPaymentDates.balance = finalBalanceDueDate;
+
+        await connection.execute(
+          'UPDATE mj_project_payments SET payment_dates = ?, updated_at = CURRENT_TIMESTAMP WHERE project_id = ?',
+          [JSON.stringify(updatedPaymentDates), projectId]
+        );
+      }
+      
+      // 상세한 로그 출력
+      console.log('='.repeat(60));
+      console.log('📅 잔금 지급일 자동 업데이트');
+      console.log('='.repeat(60));
+      console.log(`프로젝트 ID: ${projectId}`);
+      console.log(`패킹 날짜 (pl_date): ${plDate}`);
+      console.log(`계산된 잔금 지급일: ${finalBalanceDueDate} (pl_date + 3일)`);
+      console.log(`기존 잔금 지급일: ${currentBalanceDueDate || 'null'}`);
+      console.log(`업데이트된 payment_due_dates: ${JSON.stringify(updatedPaymentDueDates)}`);
+      console.log(`업데이트 시간: ${new Date().toISOString()}`);
+      console.log('='.repeat(60));
+    } else {
+      // 업데이트하지 않은 경우에도 로그 출력
+      console.log('='.repeat(60));
+      console.log('ℹ️ 잔금 지급일 업데이트 건너뜀');
+      console.log('='.repeat(60));
+      console.log(`프로젝트 ID: ${projectId}`);
+      console.log(`패킹 날짜 (pl_date): ${plDate}`);
+      console.log(`계산된 잔금 지급일: ${formattedNewDate} (pl_date + 3일)`);
+      console.log(`기존 잔금 지급일: ${currentBalanceDueDate}`);
+      console.log(`사유: pl_date + 3일이 기존 날짜보다 늦거나 동일함`);
+      console.log('='.repeat(60));
+    }
+
+  } catch (error) {
+    console.error('='.repeat(60));
+    console.error('❌ 잔금 지급일 업데이트 오류');
+    console.error('='.repeat(60));
+    console.error(`프로젝트 ID: ${projectId}`);
+    console.error(`패킹 날짜 (pl_date): ${plDate}`);
+    console.error(`오류 메시지: ${error.message}`);
+    console.error(`오류 스택: ${error.stack}`);
+    console.error('='.repeat(60));
+    // 오류가 발생해도 패킹리스트 저장은 계속 진행
+  }
+}
+
 // 물류달력 이벤트 조회
 router.get('/calendar/logistics-events', auth, async (req, res) => {
   const connection = await pool.getConnection();
@@ -113,6 +251,12 @@ router.post('/auto-save', auth, async (req, res) => {
         forceInsert: true,
         newProductName: product_name
       };
+
+      // 잔금 지급일 자동 설정 (강제 삽입 시)
+      if (project_id && pl_date) {
+        console.log(`🔄 패킹리스트 강제 삽입 - 잔금 지급일 자동 설정 시작 (프로젝트 ID: ${project_id}, pl_date: ${pl_date})`);
+        await updateBalanceDueDate(connection, project_id, pl_date);
+      }
       
       // 강제 삽입 완료
       return res.json(result);
@@ -186,6 +330,12 @@ router.post('/auto-save', auth, async (req, res) => {
         oldProductName,
         newProductName: product_name
       };
+
+      // 잔금 지급일 자동 설정 (업데이트 시)
+      if (project_id && pl_date) {
+        console.log(`🔄 패킹리스트 업데이트 - 잔금 지급일 자동 설정 시작 (프로젝트 ID: ${project_id}, pl_date: ${pl_date})`);
+        await updateBalanceDueDate(connection, project_id, pl_date);
+      }
     } else {
       // 새 데이터 삽입
       // 새 데이터 삽입
@@ -218,6 +368,12 @@ router.post('/auto-save', auth, async (req, res) => {
         action: 'inserted',
         newProductName: product_name
       };
+
+      // 잔금 지급일 자동 설정 (새로 삽입 시)
+      if (project_id && pl_date) {
+        console.log(`🔄 패킹리스트 새로 추가 - 잔금 지급일 자동 설정 시작 (프로젝트 ID: ${project_id}, pl_date: ${pl_date})`);
+        await updateBalanceDueDate(connection, project_id, pl_date);
+      }
     }
 
     res.json(result);
@@ -244,15 +400,15 @@ router.get('/by-packing-code/:packingCode', auth, async (req, res) => {
     let query, params;
     
     if (pl_date) {
-      // pl_date가 제공된 경우 packing_code와 pl_date 조합으로 검색
+      // pl_date가 제공된 경우 packing_code와 pl_date 조합으로 검색 (삭제되지 않은 것만)
       query = `SELECT * FROM mj_packing_list 
-               WHERE packing_code = ? AND pl_date = ? 
+               WHERE packing_code = ? AND pl_date = ? AND is_deleted = FALSE
                ORDER BY created_at DESC`;
       params = [packingCode, pl_date];
     } else {
-      // pl_date가 없는 경우 packing_code만으로 검색 (하위 호환성)
+      // pl_date가 없는 경우 packing_code만으로 검색 (하위 호환성, 삭제되지 않은 것만)
       query = `SELECT * FROM mj_packing_list 
-               WHERE packing_code = ? 
+               WHERE packing_code = ? AND is_deleted = FALSE
                ORDER BY created_at DESC`;
       params = [packingCode];
     }
@@ -285,6 +441,7 @@ router.get('/', auth, async (req, res) => {
   try {
     const [rows] = await connection.execute(
       `SELECT * FROM mj_packing_list 
+       WHERE is_deleted = FALSE
        ORDER BY created_at DESC`
     );
     
@@ -466,9 +623,17 @@ router.post('/update-project-export-quantity', auth, async (req, res) => {
 
 // 패킹리스트 전체 저장 시 mj_packing_list 기반으로 프로젝트 export_quantity 계산 및 업데이트
 router.post('/calculate-project-export-quantity', auth, async (req, res) => {
-  const connection = await pool.getConnection();
+  let connection;
   
   try {
+    console.log(`🚀 [calculate-project-export-quantity] API 호출 시작:`, {
+      projectId: req.body.projectId,
+      timestamp: new Date().toISOString()
+    });
+    
+    connection = await pool.getConnection();
+    console.log(`✅ [calculate-project-export-quantity] 데이터베이스 연결 성공`);
+    
     const { projectId } = req.body;
     
     // 프로젝트 출고 수량 계산 요청
@@ -481,10 +646,20 @@ router.post('/calculate-project-export-quantity', auth, async (req, res) => {
     }
 
     // 프로젝트 존재 여부 확인
+    console.log(`🔍 [calculate-project-export-quantity] 프로젝트 조회 시작:`, { projectId });
+    
     const [project] = await connection.execute(
       'SELECT id, project_name, export_quantity, entry_quantity FROM mj_project WHERE id = ?',
       [projectId]
     );
+    
+    console.log(`🔍 [calculate-project-export-quantity] 프로젝트 조회 결과:`, {
+      projectId,
+      found: project.length > 0,
+      projectData: project[0] || null,
+      entryQuantity: project[0]?.entry_quantity,
+      currentExportQuantity: project[0]?.export_quantity
+    });
 
     if (project.length === 0) {
       return res.status(404).json({ 
@@ -497,6 +672,8 @@ router.post('/calculate-project-export-quantity', auth, async (req, res) => {
 
     // mj_packing_list에서 같은 project_id를 가진 데이터들의 박스수 × 포장수 × 소포장수 합산 계산
     // 각 물품별로 개별 계산하여 정확한 export_quantity 산출
+    console.log(`🔍 [calculate-project-export-quantity] 패킹리스트 데이터 조회 시작:`, { projectId });
+    
     const [packingListData] = await connection.execute(`
       SELECT 
         id,
@@ -510,11 +687,18 @@ router.post('/calculate-project-export-quantity', auth, async (req, res) => {
         (box_count * packaging_count * packaging_method) as calculated_export_quantity
       FROM mj_packing_list 
       WHERE project_id = ? 
+        AND is_deleted = FALSE
         AND box_count > 0 
         AND packaging_count > 0 
         AND packaging_method > 0
       ORDER BY packing_code, product_name, id
     `, [projectId]);
+    
+    console.log(`🔍 [calculate-project-export-quantity] 패킹리스트 데이터 조회 결과:`, {
+      projectId,
+      dataCount: packingListData.length,
+      data: packingListData
+    });
 
     // 문자열을 숫자로 변환하여 계산하고 각 물품별로 개별 처리
     const processedPackingListData = packingListData.map(item => ({
@@ -530,21 +714,36 @@ router.post('/calculate-project-export-quantity', auth, async (req, res) => {
     }));
 
     // 각 물품별로 개별 계산하여 총 export_quantity 산출
-    // 하나의 포장코드에 여러 물품이 있어도 각각 개별적으로 계산
-    const totalExportQuantity = processedPackingListData.reduce((sum, item) => {
+    // 각 제품은 고유한 client_product_id로 구분되어 개별적으로 계산
+    let totalExportQuantity = 0;
+    
+    processedPackingListData.forEach((item, index) => {
       const itemQuantity = item.calculated_export_quantity || 0;
-      console.log(`📦 [export_quantity 계산] 물품별 개별 계산:`, {
+      const productIdentifier = item.client_product_id || `${item.product_name}_${item.product_sku}_${item.id}`;
+      
+      // 각 제품별로 독립적인 수량 계산 (runningTotal 없음)
+      console.log(`📦 [export_quantity 계산] 제품별 개별 계산:`, {
         packingCode: item.packing_code,
         productName: item.product_name,
+        productSku: item.product_sku,
         clientProductId: item.client_product_id,
+        productIdentifier: productIdentifier,
         boxCount: item.box_count,
         packagingCount: item.packaging_count,
         packagingMethod: item.packaging_method,
         calculatedQuantity: itemQuantity,
-        runningTotal: sum + itemQuantity
+        productIndex: index + 1,
+        totalProducts: processedPackingListData.length
       });
-      return sum + itemQuantity;
-    }, 0);
+      
+      // 총 수량에 추가 (누적)
+      totalExportQuantity += itemQuantity;
+    });
+    
+    console.log(`📦 [export_quantity 계산] 최종 총 수량:`, {
+      totalProducts: processedPackingListData.length,
+      totalExportQuantity: totalExportQuantity
+    });
 
     // 총 export_quantity 계산
 
@@ -581,17 +780,58 @@ router.post('/calculate-project-export-quantity', auth, async (req, res) => {
     }
 
     try {
+      console.log(`🔄 [calculate-project-export-quantity] export_quantity 업데이트 시작:`, {
+        projectId,
+        totalExportQuantity,
+        currentExportQuantity,
+        entryQuantity: project[0].entry_quantity
+      });
+      
+      // 입고 수량 검증
+      if (totalExportQuantity > project[0].entry_quantity) {
+        const errorMessage = `출고 수량(${totalExportQuantity.toLocaleString()})이 입고 수량(${project[0].entry_quantity.toLocaleString()})을 초과할 수 없습니다.`;
+        console.error(`❌ [calculate-project-export-quantity] 수량 제약조건 위반:`, {
+          projectId,
+          totalExportQuantity,
+          entryQuantity: project[0].entry_quantity,
+          difference: totalExportQuantity - project[0].entry_quantity
+        });
+        
+        res.status(400).json({
+          success: false,
+          error: errorMessage,
+          details: {
+            totalExportQuantity,
+            entryQuantity: project[0].entry_quantity,
+            difference: totalExportQuantity - project[0].entry_quantity,
+            projectId
+          }
+        });
+        return;
+      }
+      
       // export_quantity 업데이트
-      await connection.execute(
+      const [updateResult1] = await connection.execute(
         'UPDATE mj_project SET export_quantity = ?, updated_at = NOW() WHERE id = ?',
         [totalExportQuantity, projectId]
       );
+      
+      console.log(`✅ [calculate-project-export-quantity] export_quantity 업데이트 완료:`, {
+        projectId,
+        affectedRows: updateResult1.affectedRows,
+        totalExportQuantity
+      });
 
       // remain_quantity도 함께 업데이트 (entry_quantity - export_quantity)
-      await connection.execute(
+      const [updateResult2] = await connection.execute(
         'UPDATE mj_project SET remain_quantity = entry_quantity - export_quantity WHERE id = ?',
         [projectId]
       );
+      
+      console.log(`✅ [calculate-project-export-quantity] remain_quantity 업데이트 완료:`, {
+        projectId,
+        affectedRows: updateResult2.affectedRows
+      });
 
       // 프로젝트 export_quantity 업데이트 완료
 
@@ -617,6 +857,7 @@ router.post('/calculate-project-export-quantity', auth, async (req, res) => {
           productName: item.product_name,
           productSku: item.product_sku,
           clientProductId: item.client_product_id,
+          productIdentifier: item.client_product_id || `${item.product_name}_${item.product_sku}_${item.id}`,
           boxCount: item.box_count,
           packagingCount: item.packaging_count,
           packagingMethod: item.packaging_method,
@@ -649,10 +890,557 @@ router.post('/calculate-project-export-quantity', auth, async (req, res) => {
     }
 
   } catch (error) {
-    console.error('프로젝트 출고 수량 계산 오류:', error);
+    console.error('❌ [calculate-project-export-quantity] 프로젝트 출고 수량 계산 오류:', {
+      error: error.message,
+      stack: error.stack,
+      projectId: req.body.projectId,
+      timestamp: new Date().toISOString()
+    });
+    
     res.status(500).json({ 
+      success: false,
       error: '프로젝트 출고 수량 계산 및 업데이트 중 오류가 발생했습니다.',
-      details: error.message 
+      details: error.message,
+      projectId: req.body.projectId
+    });
+  } finally {
+    if (connection) {
+      connection.release();
+      console.log(`🔒 [calculate-project-export-quantity] 데이터베이스 연결 해제`);
+    }
+  }
+});
+
+// client_product_id로 개별 제품 소프트 삭제
+router.delete('/product/:clientProductId', auth, async (req, res) => {
+  const connection = await pool.getConnection();
+  
+  try {
+    const { clientProductId } = req.params;
+    
+    console.log(`🗑️ [delete-product] 제품 삭제 시작:`, {
+      clientProductId,
+      timestamp: new Date().toISOString()
+    });
+    
+    // 삭제할 제품 정보 조회 (프로젝트 ID 확인용)
+    const [productInfo] = await connection.execute(
+      `SELECT id, packing_code, product_name, project_id, 
+              (box_count * packaging_count * packaging_method) as calculated_quantity
+       FROM mj_packing_list 
+       WHERE client_product_id = ?`,
+      [clientProductId]
+    );
+    
+    if (productInfo.length === 0) {
+      console.log(`⚠️ [delete-product] 삭제할 제품을 찾을 수 없음:`, { clientProductId });
+      return res.status(404).json({ 
+        success: false,
+        error: '삭제할 제품을 찾을 수 없습니다.' 
+      });
+    }
+    
+    const product = productInfo[0];
+    console.log(`🔍 [delete-product] 삭제할 제품 정보:`, {
+      clientProductId,
+      packingCode: product.packing_code,
+      productName: product.product_name,
+      projectId: product.project_id,
+      calculatedQuantity: product.calculated_quantity
+    });
+    
+    // mj_packing_list에서 제품 소프트 삭제
+    const [deleteResult] = await connection.execute(
+      'UPDATE mj_packing_list SET is_deleted = TRUE, deleted_at = NOW(), deleted_by = ? WHERE client_product_id = ?',
+      [req.user ? req.user.id : 'unknown', clientProductId]
+    );
+    
+    console.log(`✅ [delete-product] 제품 삭제 완료:`, {
+      clientProductId,
+      affectedRows: deleteResult.affectedRows,
+      packingCode: product.packing_code
+    });
+    
+    // 삭제 로그 기록
+    try {
+      const deleteLog = {
+        action: 'DELETE_PRODUCT',
+        clientProductId,
+        packingCode: product.packing_code,
+        productName: product.product_name,
+        projectId: product.project_id,
+        calculatedQuantity: product.calculated_quantity,
+        deletedBy: req.user ? req.user.id : 'unknown',
+        deletedAt: new Date().toISOString(),
+        timestamp: Date.now()
+      };
+      
+      console.log(`📝 [delete-product] 삭제 로그 기록:`, deleteLog);
+      
+      // 로그를 파일이나 데이터베이스에 저장할 수 있음
+      // 현재는 콘솔에만 기록
+      
+    } catch (logError) {
+      console.error(`❌ [delete-product] 삭제 로그 기록 오류:`, logError);
+      // 로그 기록 실패해도 삭제는 성공으로 처리
+    }
+    
+    // logistic_payment는 CASCADE로 자동 삭제됨
+    
+    // 프로젝트가 있는 경우 export_quantity 재계산
+    if (product.project_id) {
+      console.log(`🔄 [delete-product] 프로젝트 export_quantity 재계산 시작:`, {
+        projectId: product.project_id
+      });
+      
+      try {
+        // 프로젝트 export_quantity 재계산
+        const [project] = await connection.execute(
+          'SELECT id, project_name, export_quantity, entry_quantity FROM mj_project WHERE id = ?',
+          [product.project_id]
+        );
+        
+        if (project.length > 0) {
+          // 해당 프로젝트의 남은 패킹리스트 데이터 조회
+          const [remainingPackingList] = await connection.execute(`
+            SELECT 
+              (box_count * packaging_count * packaging_method) as calculated_export_quantity
+            FROM mj_packing_list 
+            WHERE project_id = ? 
+              AND is_deleted = FALSE
+              AND box_count > 0 
+              AND packaging_count > 0 
+              AND packaging_method > 0
+          `, [product.project_id]);
+          
+          // 새로운 export_quantity 계산
+          const newExportQuantity = remainingPackingList.reduce((sum, item) => 
+            sum + (item.calculated_export_quantity || 0), 0
+          );
+          
+          console.log(`📊 [delete-product] export_quantity 재계산 결과:`, {
+            projectId: product.project_id,
+            oldExportQuantity: project[0].export_quantity,
+            newExportQuantity,
+            remainingItems: remainingPackingList.length
+          });
+          
+          // export_quantity 업데이트
+          await connection.execute(
+            'UPDATE mj_project SET export_quantity = ?, updated_at = NOW() WHERE id = ?',
+            [newExportQuantity, product.project_id]
+          );
+          
+          // remain_quantity도 함께 업데이트
+          await connection.execute(
+            'UPDATE mj_project SET remain_quantity = entry_quantity - export_quantity WHERE id = ?',
+            [product.project_id]
+          );
+          
+          console.log(`✅ [delete-product] 프로젝트 export_quantity 업데이트 완료:`, {
+            projectId: product.project_id,
+            newExportQuantity
+          });
+        }
+      } catch (recalcError) {
+        console.error(`❌ [delete-product] 프로젝트 export_quantity 재계산 오류:`, {
+          projectId: product.project_id,
+          error: recalcError.message
+        });
+        // 재계산 실패해도 제품 삭제는 성공으로 처리
+      }
+    }
+    
+    res.json({
+      success: true,
+      message: '제품이 성공적으로 삭제되었습니다.',
+      deletedProduct: {
+        clientProductId,
+        packingCode: product.packing_code,
+        productName: product.product_name,
+        projectId: product.project_id
+      }
+    });
+    
+  } catch (error) {
+    console.error('❌ [delete-product] 제품 삭제 오류:', {
+      clientProductId: req.params.clientProductId,
+      error: error.message,
+      stack: error.stack,
+      timestamp: new Date().toISOString()
+    });
+    
+    res.status(500).json({ 
+      success: false,
+      error: '제품 삭제 중 오류가 발생했습니다.',
+      details: error.message
+    });
+  } finally {
+    connection.release();
+  }
+});
+
+// client_product_id로 개별 제품 복구
+router.post('/product/:clientProductId/restore', auth, async (req, res) => {
+  const connection = await pool.getConnection();
+  
+  try {
+    const { clientProductId } = req.params;
+    
+    console.log(`🔄 [restore-product] 제품 복구 시작:`, {
+      clientProductId,
+      timestamp: new Date().toISOString()
+    });
+    
+    // 복구할 제품 정보 조회
+    const [productInfo] = await connection.execute(
+      `SELECT id, packing_code, product_name, project_id, is_deleted, deleted_at, deleted_by
+       FROM mj_packing_list 
+       WHERE client_product_id = ?`,
+      [clientProductId]
+    );
+    
+    if (productInfo.length === 0) {
+      console.log(`⚠️ [restore-product] 복구할 제품을 찾을 수 없음:`, { clientProductId });
+      return res.status(404).json({ 
+        success: false,
+        error: '복구할 제품을 찾을 수 없습니다.' 
+      });
+    }
+    
+    const product = productInfo[0];
+    
+    if (!product.is_deleted) {
+      console.log(`⚠️ [restore-product] 제품이 이미 복구됨:`, { clientProductId });
+      return res.status(400).json({ 
+        success: false,
+        error: '제품이 이미 복구되어 있습니다.' 
+      });
+    }
+    
+    console.log(`🔍 [restore-product] 복구할 제품 정보:`, {
+      clientProductId,
+      packingCode: product.packing_code,
+      productName: product.product_name,
+      projectId: product.project_id,
+      deletedAt: product.deleted_at,
+      deletedBy: product.deleted_by
+    });
+    
+    // mj_packing_list에서 제품 복구
+    const [restoreResult] = await connection.execute(
+      'UPDATE mj_packing_list SET is_deleted = FALSE, deleted_at = NULL, deleted_by = NULL WHERE client_product_id = ?',
+      [clientProductId]
+    );
+    
+    console.log(`✅ [restore-product] 제품 복구 완료:`, {
+      clientProductId,
+      affectedRows: restoreResult.affectedRows,
+      packingCode: product.packing_code
+    });
+    
+    // 프로젝트가 있는 경우 export_quantity 재계산
+    if (product.project_id) {
+      console.log(`🔄 [restore-product] 프로젝트 export_quantity 재계산 시작:`, {
+        projectId: product.project_id
+      });
+      
+      try {
+        // 프로젝트 export_quantity 재계산
+        const [project] = await connection.execute(
+          'SELECT id, project_name, export_quantity, entry_quantity FROM mj_project WHERE id = ?',
+          [product.project_id]
+        );
+        
+        if (project.length > 0) {
+          // 해당 프로젝트의 모든 패킹리스트 데이터 조회 (삭제되지 않은 것만)
+          const [remainingPackingList] = await connection.execute(`
+            SELECT 
+              (box_count * packaging_count * packaging_method) as calculated_export_quantity
+            FROM mj_packing_list 
+            WHERE project_id = ? 
+              AND is_deleted = FALSE
+              AND box_count > 0 
+              AND packaging_count > 0 
+              AND packaging_method > 0
+          `, [product.project_id]);
+          
+          // 새로운 export_quantity 계산
+          const newExportQuantity = remainingPackingList.reduce((sum, item) => 
+            sum + (item.calculated_export_quantity || 0), 0
+          );
+          
+          console.log(`📊 [restore-product] export_quantity 재계산 결과:`, {
+            projectId: product.project_id,
+            oldExportQuantity: project[0].export_quantity,
+            newExportQuantity,
+            remainingItems: remainingPackingList.length
+          });
+          
+          // export_quantity 업데이트
+          await connection.execute(
+            'UPDATE mj_project SET export_quantity = ?, updated_at = NOW() WHERE id = ?',
+            [newExportQuantity, product.project_id]
+          );
+          
+          // remain_quantity도 함께 업데이트
+          await connection.execute(
+            'UPDATE mj_project SET remain_quantity = entry_quantity - export_quantity WHERE id = ?',
+            [product.project_id]
+          );
+          
+          console.log(`✅ [restore-product] 프로젝트 export_quantity 업데이트 완료:`, {
+            projectId: product.project_id,
+            newExportQuantity
+          });
+        }
+      } catch (recalcError) {
+        console.error(`❌ [restore-product] 프로젝트 export_quantity 재계산 오류:`, {
+          projectId: product.project_id,
+          error: recalcError.message
+        });
+        // 재계산 실패해도 복구는 성공으로 처리
+      }
+    }
+    
+    res.json({
+      success: true,
+      message: '제품이 성공적으로 복구되었습니다.',
+      restoredProduct: {
+        clientProductId,
+        packingCode: product.packing_code,
+        productName: product.product_name,
+        projectId: product.project_id
+      }
+    });
+    
+  } catch (error) {
+    console.error('❌ [restore-product] 제품 복구 오류:', {
+      clientProductId: req.params.clientProductId,
+      error: error.message,
+      stack: error.stack,
+      timestamp: new Date().toISOString()
+    });
+    
+    res.status(500).json({ 
+      success: false,
+      error: '제품 복구 중 오류가 발생했습니다.',
+      details: error.message
+    });
+  } finally {
+    connection.release();
+  }
+});
+
+// 삭제된 제품 목록 조회
+router.get('/deleted-products', auth, async (req, res) => {
+  const connection = await pool.getConnection();
+  
+  try {
+    const [deletedProducts] = await connection.execute(`
+      SELECT 
+        id,
+        client_product_id,
+        packing_code,
+        product_name,
+        product_sku,
+        project_id,
+        box_count,
+        packaging_count,
+        packaging_method,
+        deleted_at,
+        deleted_by,
+        created_at
+      FROM mj_packing_list 
+      WHERE is_deleted = TRUE 
+      ORDER BY deleted_at DESC
+    `);
+    
+    res.json({
+      success: true,
+      data: deletedProducts,
+      total: deletedProducts.length
+    });
+    
+  } catch (error) {
+    console.error('❌ [get-deleted-products] 삭제된 제품 조회 오류:', error);
+    res.status(500).json({ 
+      success: false,
+      error: '삭제된 제품 조회 중 오류가 발생했습니다.',
+      details: error.message
+    });
+  } finally {
+    connection.release();
+  }
+});
+
+// 날짜별 패킹리스트 삭제
+router.delete('/by-date/:date', auth, async (req, res) => {
+  const connection = await pool.getConnection();
+  
+  try {
+    const { date } = req.params;
+    const dateParam = date === 'no-date' ? null : date;
+    
+    console.log(`🗑️ [delete-by-date] 날짜별 패킹리스트 삭제 시작:`, {
+      date,
+      dateParam,
+      timestamp: new Date().toISOString()
+    });
+    
+    // 삭제할 데이터 조회 (프로젝트 ID 확인용)
+    const [packingListData] = await connection.execute(
+      `SELECT id, packing_code, product_name, project_id, 
+              (box_count * packaging_count * packaging_method) as calculated_quantity
+       FROM mj_packing_list 
+       WHERE pl_date = ?`,
+      [dateParam]
+    );
+    
+    if (packingListData.length === 0) {
+      console.log(`⚠️ [delete-by-date] 삭제할 데이터를 찾을 수 없음:`, { date, dateParam });
+      return res.status(404).json({ 
+        success: false,
+        error: '삭제할 패킹리스트를 찾을 수 없습니다.' 
+      });
+    }
+    
+    console.log(`🔍 [delete-by-date] 삭제할 데이터 정보:`, {
+      date,
+      dataCount: packingListData.length,
+      projects: [...new Set(packingListData.map(item => item.project_id).filter(Boolean))],
+      packingCodes: [...new Set(packingListData.map(item => item.packing_code))]
+    });
+    
+    // mj_packing_list에서 해당 날짜의 모든 데이터 삭제
+    const [deleteResult] = await connection.execute(
+      'DELETE FROM mj_packing_list WHERE pl_date = ?',
+      [dateParam]
+    );
+    
+    console.log(`✅ [delete-by-date] 패킹리스트 삭제 완료:`, {
+      date,
+      affectedRows: deleteResult.affectedRows
+    });
+    
+    // 삭제 로그 기록
+    try {
+      const deleteLog = {
+        action: 'DELETE_PACKING_LIST_BY_DATE',
+        date: date,
+        deletedCount: deleteResult.affectedRows,
+        affectedProjects: affectedProjects,
+        packingCodes: [...new Set(packingListData.map(item => item.packing_code))],
+        deletedItems: packingListData.map(item => ({
+          id: item.id,
+          packing_code: item.packing_code,
+          product_name: item.product_name,
+          project_id: item.project_id,
+          calculated_quantity: item.calculated_quantity
+        })),
+        deletedBy: req.user ? req.user.id : 'unknown',
+        deletedAt: new Date().toISOString(),
+        timestamp: Date.now()
+      };
+      
+      console.log(`📝 [delete-by-date] 삭제 로그 기록:`, deleteLog);
+      
+      // 로그를 파일이나 데이터베이스에 저장할 수 있음
+      // 현재는 콘솔에만 기록
+      
+    } catch (logError) {
+      console.error(`❌ [delete-by-date] 삭제 로그 기록 오류:`, logError);
+      // 로그 기록 실패해도 삭제는 성공으로 처리
+    }
+    
+    // logistic_payment는 CASCADE로 자동 삭제됨
+    
+    // 삭제된 데이터에 포함된 프로젝트들의 export_quantity 재계산
+    const affectedProjects = [...new Set(packingListData.map(item => item.project_id).filter(Boolean))];
+    
+    for (const projectId of affectedProjects) {
+      console.log(`🔄 [delete-by-date] 프로젝트 export_quantity 재계산 시작:`, {
+        projectId
+      });
+      
+      try {
+        // 프로젝트 export_quantity 재계산
+        const [project] = await connection.execute(
+          'SELECT id, project_name, export_quantity, entry_quantity FROM mj_project WHERE id = ?',
+          [projectId]
+        );
+        
+        if (project.length > 0) {
+          // 해당 프로젝트의 남은 패킹리스트 데이터 조회
+          const [remainingPackingList] = await connection.execute(`
+            SELECT 
+              (box_count * packaging_count * packaging_method) as calculated_export_quantity
+            FROM mj_packing_list 
+            WHERE project_id = ? 
+              AND is_deleted = FALSE
+              AND box_count > 0 
+              AND packaging_count > 0 
+              AND packaging_method > 0
+          `, [projectId]);
+          
+          // 새로운 export_quantity 계산
+          const newExportQuantity = remainingPackingList.reduce((sum, item) => 
+            sum + (item.calculated_export_quantity || 0), 0
+          );
+          
+          console.log(`📊 [delete-by-date] export_quantity 재계산 결과:`, {
+            projectId,
+            oldExportQuantity: project[0].export_quantity,
+            newExportQuantity,
+            remainingItems: remainingPackingList.length
+          });
+          
+          // export_quantity 업데이트
+          await connection.execute(
+            'UPDATE mj_project SET export_quantity = ?, updated_at = NOW() WHERE id = ?',
+            [newExportQuantity, projectId]
+          );
+          
+          // remain_quantity도 함께 업데이트
+          await connection.execute(
+            'UPDATE mj_project SET remain_quantity = entry_quantity - export_quantity WHERE id = ?',
+            [projectId]
+          );
+          
+          console.log(`✅ [delete-by-date] 프로젝트 export_quantity 업데이트 완료:`, {
+            projectId,
+            newExportQuantity
+          });
+        }
+      } catch (recalcError) {
+        console.error(`❌ [delete-by-date] 프로젝트 export_quantity 재계산 오류:`, {
+          projectId,
+          error: recalcError.message
+        });
+        // 재계산 실패해도 삭제는 성공으로 처리
+      }
+    }
+    
+    res.json({
+      success: true,
+      message: `"${date}" 출고일자의 패킹리스트가 삭제되었습니다.`,
+      deletedCount: deleteResult.affectedRows,
+      affectedProjects: affectedProjects.length,
+      date: date
+    });
+    
+  } catch (error) {
+    console.error('❌ [delete-by-date] 날짜별 패킹리스트 삭제 오류:', {
+      date: req.params.date,
+      error: error.message,
+      stack: error.stack,
+      timestamp: new Date().toISOString()
+    });
+    
+    res.status(500).json({ 
+      success: false,
+      error: '날짜별 패킹리스트 삭제 중 오류가 발생했습니다.',
+      details: error.message
     });
   } finally {
     connection.release();
@@ -820,6 +1608,7 @@ router.get('/calendar/events', auth, async (req, res) => {
       WHERE pl.pl_date IS NOT NULL 
         AND pl.pl_date != '' 
         AND pl.pl_date != 'no-date'
+        AND pl.is_deleted = FALSE
       ORDER BY pl.pl_date ASC, pl.packing_code ASC
     `);
 
@@ -989,6 +1778,130 @@ router.get('/calendar/logistics-events', auth, async (req, res) => {
       success: false,
       message: '물류 이벤트 조회 중 오류가 발생했습니다.',
       error: error.message
+    });
+  } finally {
+    connection.release();
+  }
+});
+
+// 패킹리스트 일괄 업데이트 (편집 페이지용)
+router.put('/bulk-update', auth, async (req, res) => {
+  const connection = await pool.getConnection();
+  
+  try {
+    const { packingData, date } = req.body;
+    
+    if (!packingData || !Array.isArray(packingData)) {
+      return res.status(400).json({
+        success: false,
+        error: '유효하지 않은 데이터입니다.'
+      });
+    }
+
+    console.log('📝 [bulk-update] 패킹리스트 일괄 업데이트 시작:', {
+      date,
+      totalGroups: packingData.length,
+      timestamp: new Date().toISOString()
+    });
+
+    await connection.beginTransaction();
+
+    // 기존 데이터 삭제 (해당 날짜의 모든 데이터)
+    const dateParam = date === 'no-date' ? null : date;
+    await connection.execute(
+      'DELETE FROM mj_packing_list WHERE pl_date = ?',
+      [dateParam]
+    );
+
+    // 새 데이터 삽입
+    let insertedCount = 0;
+    for (const group of packingData) {
+      for (const product of group.products) {
+        await connection.execute(`
+          INSERT INTO mj_packing_list (
+            packing_code, product_name, product_sku, client_product_id,
+            box_count, packaging_method, packaging_count, quantity_per_box,
+            pl_date, logistic_company, project_id, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
+        `, [
+          group.packing_code,
+          product.product_name,
+          product.product_sku,
+          product.client_product_id,
+          product.box_count,
+          product.packaging_method,
+          product.packaging_count,
+          product.quantity_per_box,
+          dateParam,
+          group.logistic_company,
+          product.project_id
+        ]);
+        insertedCount++;
+      }
+    }
+
+    // 프로젝트 export_quantity 재계산
+    const affectedProjects = [...new Set(
+      packingData.flatMap(group => 
+        group.products.map(product => product.project_id).filter(Boolean)
+      )
+    )];
+
+    for (const projectId of affectedProjects) {
+      console.log('🔄 [bulk-update] 프로젝트 export_quantity 재계산:', projectId);
+      
+      // 해당 프로젝트의 모든 패킹리스트 데이터 조회
+      const [remainingPackingList] = await connection.execute(`
+        SELECT 
+          (box_count * packaging_count * packaging_method) as calculated_export_quantity
+        FROM mj_packing_list 
+        WHERE project_id = ? 
+          AND is_deleted = FALSE
+          AND box_count > 0 
+          AND packaging_count > 0 
+          AND packaging_method > 0
+      `, [projectId]);
+      
+      // 새로운 export_quantity 계산
+      const newExportQuantity = remainingPackingList.reduce((sum, item) => 
+        sum + (item.calculated_export_quantity || 0), 0
+      );
+      
+      // export_quantity 업데이트
+      await connection.execute(
+        'UPDATE mj_project SET export_quantity = ?, updated_at = NOW() WHERE id = ?',
+        [newExportQuantity, projectId]
+      );
+      
+      // remain_quantity도 함께 업데이트
+      await connection.execute(
+        'UPDATE mj_project SET remain_quantity = entry_quantity - export_quantity WHERE id = ?',
+        [projectId]
+      );
+    }
+
+    await connection.commit();
+
+    console.log('✅ [bulk-update] 패킹리스트 일괄 업데이트 완료:', {
+      date,
+      insertedCount,
+      affectedProjects: affectedProjects.length
+    });
+
+    res.json({
+      success: true,
+      message: '패킹리스트가 성공적으로 업데이트되었습니다.',
+      insertedCount,
+      affectedProjects: affectedProjects.length
+    });
+    
+  } catch (error) {
+    await connection.rollback();
+    console.error('❌ [bulk-update] 패킹리스트 일괄 업데이트 오류:', error);
+    res.status(500).json({
+      success: false,
+      error: '패킹리스트 업데이트 중 오류가 발생했습니다.',
+      details: error.message
     });
   } finally {
     connection.release();

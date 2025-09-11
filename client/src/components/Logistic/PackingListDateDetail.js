@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { toast } from 'react-hot-toast';
-import { ArrowLeft, Package, Calendar, Truck, Box, Printer } from 'lucide-react';
+import { ArrowLeft, Package, Calendar, Truck, Box, Printer, Trash2, X } from 'lucide-react';
 import PackingListDetailPrints from './PackingListDetailPrints';
 
 const PackingListDateDetail = () => {
@@ -21,6 +21,10 @@ const PackingListDateDetail = () => {
 
   // 인쇄 모달 상태
   const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
+  
+  // 삭제 미리보기 모달 상태
+  const [isDeletePreviewOpen, setIsDeletePreviewOpen] = useState(false);
+  const [deletePreviewData, setDeletePreviewData] = useState(null);
 
   // URL 파라미터에서 날짜 정보 추출
   const displayDate = date === 'no-date' ? '날짜 미지정' : date;
@@ -71,6 +75,8 @@ const PackingListDateDetail = () => {
             packing_code: item.packing_code,
             box_count: item.box_count,
             product_name: item.product_name,
+            product_sku: item.product_sku,
+            client_product_id: item.client_product_id,
             logistic_company: item.logistic_company
           });
           
@@ -83,6 +89,7 @@ const PackingListDateDetail = () => {
               product_name: item.product_name,
               product_sku: item.product_sku,
               product_image: item.product_image,
+              client_product_id: item.client_product_id, // client_product_id 추가
               packaging_method: item.packaging_method,
               packaging_count: item.packaging_count,
               quantity_per_box: item.quantity_per_box,
@@ -104,6 +111,7 @@ const PackingListDateDetail = () => {
                 product_name: item.product_name,
                 product_sku: item.product_sku,
                 product_image: item.product_image,
+                client_product_id: item.client_product_id, // client_product_id 추가
                 packaging_method: item.packaging_method,
                 packaging_count: item.packaging_count,
                 quantity_per_box: item.quantity_per_box,
@@ -202,11 +210,16 @@ const PackingListDateDetail = () => {
 
       if (response.ok) {
         const userData = await response.json();
-        setIsAdmin(userData.role === 'admin');
+        const adminStatus = Boolean(userData.is_admin);
+        setIsAdmin(adminStatus);
         console.log('🔐 [PackingListDateDetail] 사용자 권한 확인:', {
-          role: userData.role,
-          isAdmin: userData.role === 'admin'
+          is_admin: userData.is_admin,
+          isAdmin: adminStatus,
+          userData: userData
         });
+      } else {
+        console.error('❌ [PackingListDateDetail] 권한 확인 API 응답 실패:', response.status, response.statusText);
+        setIsAdmin(false);
       }
     } catch (error) {
       console.error('❌ [PackingListDateDetail] 사용자 권한 확인 오류:', error);
@@ -247,12 +260,51 @@ const PackingListDateDetail = () => {
 
   // 편집 페이지로 이동
   const handleEdit = () => {
-    toast.info('편집 기능은 준비 중입니다.');
+    if (!isAdmin) {
+      toast.error('편집은 관리자만 가능합니다.');
+      return;
+    }
+
+    // 날짜별 패킹리스트 편집 페이지로 이동
+    // URL 파라미터로 날짜 정보 전달
+    navigate(`/dashboard/mj-packing-list/edit?date=${encodeURIComponent(date)}`);
   };
 
-  // 전체 삭제
-  const handleDelete = async () => {
-    if (!window.confirm(`정말로 ${displayDate}의 모든 패킹리스트를 삭제하시겠습니까?`)) {
+  // 삭제 미리보기 열기
+  const openDeletePreview = () => {
+    if (!isAdmin) {
+      toast.error('삭제는 관리자만 가능합니다.');
+      return;
+    }
+
+    // 삭제할 데이터 미리보기 정보 생성
+    const affectedProjects = [...new Set(packingData.map(item => item.project_id).filter(Boolean))];
+    const packingCodes = [...new Set(packingData.map(item => item.packing_code))];
+    
+    setDeletePreviewData({
+      date: displayDate,
+      totalItems: packingData.length,
+      totalBoxes: summary.totalBoxes,
+      totalQuantity: summary.totalQuantity,
+      affectedProjects: affectedProjects.length,
+      packingCodes: packingCodes.length,
+      logisticCompanies: summary.logisticCompanies.length,
+      packingData: packingData.slice(0, 5) // 처음 5개만 미리보기
+    });
+    
+    setIsDeletePreviewOpen(true);
+  };
+
+  // 삭제 미리보기 닫기
+  const closeDeletePreview = () => {
+    setIsDeletePreviewOpen(false);
+    setDeletePreviewData(null);
+  };
+
+  // 실제 삭제 실행
+  const executeDelete = async () => {
+    if (!isAdmin) {
+      toast.error('삭제는 관리자만 가능합니다.');
       return;
     }
 
@@ -262,23 +314,57 @@ const PackingListDateDetail = () => {
         throw new Error('인증 토큰이 없습니다.');
       }
 
-      // 해당 날짜의 모든 포장코드 삭제
-      const deletePromises = packingData.map(item => 
-        fetch(`/api/packing-list/packing-code/${item.packing_code}`, {
-          method: 'DELETE',
-          headers: {
-            'Authorization': `Bearer ${token}`
-          }
-        })
-      );
+      console.log('🗑️ [PackingListDateDetail] 날짜별 삭제 시작:', {
+        date,
+        displayDate,
+        totalItems: packingData.length,
+        timestamp: new Date().toISOString()
+      });
 
-      await Promise.all(deletePromises);
-      
-      toast.success(`${displayDate}의 모든 패킹리스트가 삭제되었습니다.`);
-      navigate('/dashboard/mj-packing-list');
+      // 삭제 미리보기 모달 닫기
+      closeDeletePreview();
+
+      // 로딩 토스트 표시
+      toast.loading('패킹리스트를 삭제하는 중...');
+
+      // 날짜별 단일 API 호출로 변경
+      const response = await fetch(`/api/packing-list/by-date/${date}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      const result = await response.json();
+      toast.dismiss();
+
+      if (result.success) {
+        console.log('✅ [PackingListDateDetail] 삭제 성공:', {
+          deletedCount: result.deletedCount,
+          affectedProjects: result.affectedProjects,
+          date: result.date
+        });
+
+        toast.success(`${result.message}\n${result.deletedCount}개 항목이 삭제되었습니다.`);
+        
+        // 목록 페이지로 이동
+        setTimeout(() => {
+          navigate('/dashboard/mj-packing-list');
+        }, 1500);
+      } else {
+        console.error('❌ [PackingListDateDetail] 삭제 실패:', result);
+        toast.error(result.error || '삭제에 실패했습니다.');
+      }
     } catch (error) {
-      console.error('❌ [PackingListDateDetail] 삭제 오류:', error);
-      toast.error('삭제에 실패했습니다: ' + error.message);
+      console.error('❌ [PackingListDateDetail] 삭제 오류:', {
+        error: error.message,
+        stack: error.stack,
+        date,
+        timestamp: new Date().toISOString()
+      });
+      toast.dismiss();
+      toast.error('삭제 중 오류가 발생했습니다: ' + error.message);
     }
   };
 
@@ -396,7 +482,7 @@ const PackingListDateDetail = () => {
             {/* Admin 권한 사용자에게만 전체 삭제 버튼 표시 */}
             {isAdmin && (
               <button
-                onClick={handleDelete}
+                onClick={openDeletePreview}
                 className="inline-flex items-center px-4 py-2 bg-red-600 text-white text-sm font-medium rounded-lg hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 transition-colors"
               >
                 전체 삭제
@@ -591,6 +677,127 @@ const PackingListDateDetail = () => {
         selectedDate={displayDate}
         summary={summary}
       />
+
+      {/* 삭제 미리보기 모달 */}
+      {isDeletePreviewOpen && deletePreviewData && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+            <div className="p-6">
+              {/* 헤더 */}
+              <div className="flex items-center justify-between mb-6">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-red-100 rounded-lg">
+                    <Trash2 className="w-6 h-6 text-red-600" />
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-bold text-gray-900">삭제 확인</h2>
+                    <p className="text-gray-600">다음 데이터가 삭제됩니다</p>
+                  </div>
+                </div>
+                <button
+                  onClick={closeDeletePreview}
+                  className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* 삭제 정보 */}
+              <div className="space-y-4 mb-6">
+                <div className="bg-red-50 p-4 rounded-lg">
+                  <h3 className="font-semibold text-red-800 mb-2">삭제 대상 정보</h3>
+                  <div className="grid grid-cols-2 gap-4 text-sm">
+                    <div>
+                      <span className="text-gray-600">출고일자:</span>
+                      <span className="ml-2 font-medium">{deletePreviewData.date}</span>
+                    </div>
+                    <div>
+                      <span className="text-gray-600">총 항목 수:</span>
+                      <span className="ml-2 font-medium text-red-600">{deletePreviewData.totalItems}개</span>
+                    </div>
+                    <div>
+                      <span className="text-gray-600">총 박스 수:</span>
+                      <span className="ml-2 font-medium text-red-600">{deletePreviewData.totalBoxes}박스</span>
+                    </div>
+                    <div>
+                      <span className="text-gray-600">총 수량:</span>
+                      <span className="ml-2 font-medium text-red-600">{deletePreviewData.totalQuantity.toLocaleString()}개</span>
+                    </div>
+                    <div>
+                      <span className="text-gray-600">영향받는 프로젝트:</span>
+                      <span className="ml-2 font-medium text-red-600">{deletePreviewData.affectedProjects}개</span>
+                    </div>
+                    <div>
+                      <span className="text-gray-600">포장코드 수:</span>
+                      <span className="ml-2 font-medium text-red-600">{deletePreviewData.packingCodes}개</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 미리보기 데이터 */}
+                <div className="bg-gray-50 p-4 rounded-lg">
+                  <h3 className="font-semibold text-gray-800 mb-2">삭제될 상품 미리보기</h3>
+                  <div className="space-y-2 max-h-40 overflow-y-auto">
+                    {deletePreviewData.packingData.map((item, index) => (
+                      <div key={index} className="flex justify-between items-center text-sm py-1 border-b border-gray-200 last:border-b-0">
+                        <div className="flex-1">
+                          <span className="font-medium">{item.packing_code}</span>
+                          <span className="text-gray-500 ml-2">- {item.product_name}</span>
+                        </div>
+                        <div className="text-gray-600">
+                          {item.box_count}박스 × {item.packaging_count}개
+                        </div>
+                      </div>
+                    ))}
+                    {deletePreviewData.totalItems > 5 && (
+                      <div className="text-center text-gray-500 text-sm py-2">
+                        ... 외 {deletePreviewData.totalItems - 5}개 항목
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* 경고 메시지 */}
+              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-6">
+                <div className="flex items-start">
+                  <div className="flex-shrink-0">
+                    <svg className="h-5 w-5 text-yellow-400" viewBox="0 0 20 20" fill="currentColor">
+                      <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                    </svg>
+                  </div>
+                  <div className="ml-3">
+                    <h3 className="text-sm font-medium text-yellow-800">주의사항</h3>
+                    <div className="mt-2 text-sm text-yellow-700">
+                      <ul className="list-disc list-inside space-y-1">
+                        <li>이 작업은 되돌릴 수 없습니다.</li>
+                        <li>관련된 프로젝트의 출고 수량이 자동으로 재계산됩니다.</li>
+                        <li>물류 결제 정보도 함께 삭제됩니다.</li>
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* 액션 버튼 */}
+              <div className="flex justify-end gap-3">
+                <button
+                  onClick={closeDeletePreview}
+                  className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+                >
+                  취소
+                </button>
+                <button
+                  onClick={executeDelete}
+                  className="px-4 py-2 bg-red-600 text-white hover:bg-red-700 rounded-lg transition-colors"
+                >
+                  삭제 실행
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );

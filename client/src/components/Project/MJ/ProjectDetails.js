@@ -3,7 +3,6 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../../contexts/AuthContext';
 import { 
   ArrowLeft, 
-  Edit, 
   Trash2, 
   Calendar,
   Package,
@@ -11,8 +10,6 @@ import {
   CreditCard,
   Link as LinkIcon,
   Image as ImageIcon,
-  User,
-  Building,
   Clock,
   Truck,
   Ship
@@ -134,10 +131,6 @@ const ProjectDetails = () => {
       ...prev,
       ...updates
     }));
-  };
-
-  const handleEditProject = () => {
-    navigate(`/dashboard/mj-projects/${id}/edit`);
   };
 
   const handleDeleteProject = async () => {
@@ -277,8 +270,8 @@ const ProjectDetails = () => {
       <div className="max-w-7xl mx-auto">
         {/* Header */}
         <div className="mb-8">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-4">
+          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex items-center space-x-4 mb-4 lg:mb-0">
               <button
                 onClick={handleBackToList}
                 className="flex items-center px-3 py-2 text-gray-600 hover:text-gray-900 transition-colors"
@@ -286,19 +279,49 @@ const ProjectDetails = () => {
                 <ArrowLeft className="w-5 h-5 mr-2" />
                 목록으로 돌아가기
               </button>
-              <div>
-                <h1 className="text-3xl font-bold text-gray-900 mb-2">프로젝트 상세 정보</h1>
-                <p className="text-gray-600">프로젝트의 모든 정보를 확인할 수 있습니다.</p>
+              
+              {/* 상품 사진 */}
+              <div className="flex-shrink-0">
+                {project?.images?.[0] ? (
+                  <img
+                    src={project.images[0].url}
+                    alt={project.project_name}
+                    className="w-16 h-16 rounded-lg object-cover border border-gray-200 shadow-sm"
+                    onError={(e) => {
+                      if (project.images[0].fallback_url && e.target.src !== project.images[0].fallback_url) {
+                        e.target.src = project.images[0].fallback_url;
+                      } else {
+                        e.target.style.display = 'none';
+                        e.target.nextElementSibling.style.display = 'flex';
+                      }
+                    }}
+                  />
+                ) : null}
+                <div 
+                  className={`w-16 h-16 rounded-lg bg-gray-100 border border-gray-200 flex items-center justify-center shadow-sm ${project?.images?.[0] ? 'hidden' : ''}`}
+                >
+                  <Package className="w-8 h-8 text-gray-400" />
+                </div>
+              </div>
+              
+              {/* 상품명과 설명 */}
+              <div className="min-w-0 flex-1">
+                <h1 className="text-2xl font-bold text-gray-900 mb-1 truncate">
+                  {project?.project_name || '프로젝트 상세 정보'}
+                </h1>
+                <p className="text-sm text-gray-600 truncate">
+                  {project?.description || '프로젝트의 모든 정보를 확인할 수 있습니다.'}
+                </p>
+                {project?.supplier_name && (
+                  <p className="text-xs text-gray-500 mt-1 truncate">
+                    공급자: {project.supplier_name}
+                  </p>
+                )}
               </div>
             </div>
+            
+            {/* 액션 버튼들 */}
             <div className="flex items-center space-x-3">
-              <button
-                onClick={handleEditProject}
-                className="flex items-center px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors"
-              >
-                <Edit className="w-4 h-4 mr-2" />
-                프로젝트 수정
-              </button>
               <button
                 onClick={handleDeleteProject}
                 className="flex items-center px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors"
@@ -506,65 +529,6 @@ const ProjectDetails = () => {
               </div>
             </div>
 
-            {/* User Information Table */}
-            <div className="mb-8">
-              <h2 className="text-xl font-semibold text-gray-900 mb-4 flex items-center">
-                <User className="w-5 h-5 mr-2 text-green-600" />
-                사용자 정보
-              </h2>
-              <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200 border border-gray-200">
-                  <tbody className="bg-white divide-y divide-gray-200">
-                    <tr className="hover:bg-gray-50">
-                      <td className="px-3 py-4 whitespace-nowrap text-sm font-medium text-gray-900 bg-gray-50 border-r border-gray-200" style={{width: '12.5%'}}>
-                        <div className="flex items-center">
-                          <User className="w-4 h-4 mr-2 text-blue-600" />
-                          프로젝트 소유자
-                        </div>
-                      </td>
-                      <td className="px-3 py-4 whitespace-nowrap text-sm text-gray-900 border-r border-gray-200" style={{width: '12.5%'}}>
-                        {project.username || '알 수 없음'}
-                      </td>
-                      <td className="px-3 py-4 whitespace-nowrap text-sm font-medium text-gray-900 bg-gray-50 border-r border-gray-200" style={{width: '12.5%'}}>
-                        <div className="flex items-center">
-                          <Building className="w-4 h-4 mr-2 text-green-600" />
-                          회사명
-                        </div>
-                      </td>
-                      <td className="px-3 py-4 whitespace-nowrap text-sm text-gray-900 border-r border-gray-200" style={{width: '12.5%'}}>
-                        {project.company_name || '-'}
-                      </td>
-                      <td className="px-3 py-4 whitespace-nowrap text-sm font-medium text-gray-900 bg-gray-50 border-r border-gray-200" style={{width: '12.5%'}}>
-                        <div className="flex items-center">
-                          <div className="w-4 h-4 mr-2 rounded-full bg-yellow-600"></div>
-                          전화번호
-                        </div>
-                      </td>
-                      <td className="px-3 py-4 whitespace-nowrap text-sm text-gray-900 border-r border-gray-200" style={{width: '12.5%'}}>
-                        {project.phone ? (
-                          <a href={`tel:${project.phone}`} className="text-blue-600 hover:text-blue-800">
-                            {project.phone}
-                          </a>
-                        ) : '-'}
-                      </td>
-                      <td className="px-3 py-4 whitespace-nowrap text-sm font-medium text-gray-900 bg-gray-50 border-r border-gray-200" style={{width: '12.5%'}}>
-                        <div className="flex items-center">
-                          <div className="w-4 h-4 mr-2 rounded-full bg-purple-600"></div>
-                          이메일
-                        </div>
-                      </td>
-                      <td className="px-3 py-4 whitespace-nowrap text-sm text-gray-900" style={{width: '12.5%'}}>
-                        {project.email ? (
-                          <a href={`mailto:${project.email}`} className="text-blue-600 hover:text-blue-800">
-                            {project.email}
-                          </a>
-                        ) : '-'}
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
 
             {/* Product Information Component */}
             <ProdInfo project={project} />

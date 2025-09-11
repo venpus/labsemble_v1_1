@@ -9,6 +9,37 @@ const PackingListDetail = () => {
   const [packingList, setPackingList] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [isAdmin, setIsAdmin] = useState(false);
+
+  // 사용자 권한 확인
+  const checkUserRole = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        setIsAdmin(false);
+        return;
+      }
+
+      const response = await fetch('/api/users/me', {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      if (response.ok) {
+        const userData = await response.json();
+        const adminStatus = Boolean(userData.is_admin);
+        setIsAdmin(adminStatus);
+        console.log('🔐 [PackingListDetail] 사용자 권한 확인:', {
+          is_admin: userData.is_admin,
+          isAdmin: adminStatus
+        });
+      }
+    } catch (error) {
+      console.error('❌ [PackingListDetail] 사용자 권한 확인 오류:', error);
+      setIsAdmin(false);
+    }
+  };
 
   // 특정 포장코드의 패킹 리스트 데이터 가져오기
   const fetchPackingListDetail = async () => {
@@ -50,6 +81,7 @@ const PackingListDetail = () => {
   // 컴포넌트 마운트 시 데이터 로드
   useEffect(() => {
     if (packingCode) {
+      checkUserRole();
       fetchPackingListDetail();
     }
   }, [packingCode]);
@@ -66,6 +98,11 @@ const PackingListDetail = () => {
 
   // 패킹 리스트 삭제
   const handleDelete = async () => {
+    if (!isAdmin) {
+      toast.error('삭제는 관리자만 가능합니다.');
+      return;
+    }
+
     if (!packingCode) {
       toast.error('삭제할 포장코드를 찾을 수 없습니다.');
       return;
@@ -193,14 +230,21 @@ const PackingListDetail = () => {
             <Edit className="w-4 h-4" />
             편집
           </button>
-          <button
-            onClick={handleDelete}
-            className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 transition-colors flex items-center gap-2 shadow-sm"
-            title="포장코드의 모든 패킹리스트 삭제"
-          >
-            <Trash2 className="w-4 h-4" />
-            전체 삭제
-          </button>
+          {isAdmin ? (
+            <button
+              onClick={handleDelete}
+              className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 transition-colors flex items-center gap-2 shadow-sm"
+              title="포장코드의 모든 패킹리스트 삭제"
+            >
+              <Trash2 className="w-4 h-4" />
+              전체 삭제
+            </button>
+          ) : (
+            <span className="px-4 py-2 bg-gray-300 text-gray-500 rounded flex items-center gap-2 cursor-not-allowed">
+              <Trash2 className="w-4 h-4" />
+              권한 없음
+            </span>
+          )}
         </div>
       </div>
 

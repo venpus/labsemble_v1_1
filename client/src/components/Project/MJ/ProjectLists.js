@@ -163,6 +163,8 @@ const ProjectLists = () => {
     }
   }, [itemsPerPage, searchParams]);
 
+  // 필터 변경 시 자동으로 검색 실행 (ListSearch 컴포넌트에서 onSearch 호출로 처리)
+  // useEffect는 제거하고 ListSearch 컴포넌트의 onChange에서 직접 처리
 
   // 서버에서 이미 필터링된 데이터를 받으므로 클라이언트 사이드 필터링 비활성화
   // useEffect(() => {
@@ -171,12 +173,21 @@ const ProjectLists = () => {
 
   // 검색 실행 함수
   const handleSearch = () => {
-    console.log('🔍 [ProjectLists] 검색 실행:', { searchTerm, appliedSearchTerm });
+    console.log('🔍 [ProjectLists] 검색 실행:', { 
+      searchTerm, 
+      appliedSearchTerm,
+      filterOrderStatus,
+      filterShippingStatus,
+      filterWarehouseStatus
+    });
     setAppliedSearchTerm(searchTerm);
     setCurrentPage(1);
-    // URL 파라미터 업데이트
+    // URL 파라미터 업데이트 (검색어와 필터 모두 포함)
     updateUrlParams({ 
       search: searchTerm,
+      orderStatus: filterOrderStatus,
+      shippingStatus: filterShippingStatus,
+      warehouseStatus: filterWarehouseStatus,
       page: 1 
     });
     // 검색 실행 후 즉시 API 호출

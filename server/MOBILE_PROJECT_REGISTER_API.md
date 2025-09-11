@@ -178,3 +178,5 @@ const result = await response.json();
 - `📱 [mobile-project]`: 모바일 프로젝트 등록 관련 로그
 - `✅ [mobile-project]`: 성공 로그
 - `❌ [mobile-project]`: 에러 로그
+
+

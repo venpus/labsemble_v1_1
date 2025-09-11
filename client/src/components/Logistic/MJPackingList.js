@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { toast } from 'react-hot-toast';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Package, Eye, List } from 'lucide-react';
+import { Plus, Package, Eye, List, Trash2, X } from 'lucide-react';
 
 const MJPackingList = () => {
   const navigate = useNavigate();
@@ -13,6 +13,11 @@ const MJPackingList = () => {
   // 페이징 관련 상태
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
+  
+  // 삭제 미리보기 모달 상태
+  const [isDeletePreviewOpen, setIsDeletePreviewOpen] = useState(false);
+  const [deletePreviewData, setDeletePreviewData] = useState(null);
+  const [pendingDeleteDate, setPendingDeleteDate] = useState(null);
 
   // 패킹 리스트 데이터 가져오기
   const fetchPackingLists = async () => {
@@ -43,9 +48,20 @@ const MJPackingList = () => {
           const existingGroup = acc.find(group => group.pl_date === plDate);
           
           if (existingGroup) {
-            // 기존 그룹에 상품명 추가
-            if (!existingGroup.product_names.includes(item.product_name)) {
-              existingGroup.product_names.push(item.product_name);
+            // 기존 그룹에 상품명 추가 (client_product_id를 고려한 고유 제품 체크)
+            const productKey = item.client_product_id || `${item.product_name}_${item.product_sku}`;
+            const existingProductKey = existingGroup.product_keys?.find(key => key === productKey);
+            
+            if (!existingProductKey) {
+              if (!existingGroup.product_keys) {
+                existingGroup.product_keys = [];
+              }
+              existingGroup.product_keys.push(productKey);
+              
+              // 제품명이 다르면 추가 (같은 client_product_id가 아닌 경우)
+              if (!existingGroup.product_names.includes(item.product_name)) {
+                existingGroup.product_names.push(item.product_name);
+              }
             }
             
             // packing_code별로 box_count를 추적하여 중복 합산 방지
@@ -66,11 +82,13 @@ const MJPackingList = () => {
             // 배송비 정보는 logistic_payment 테이블에서 별도로 조회하므로 여기서는 제거
           } else {
             // 새로운 그룹 생성
+            const productKey = item.client_product_id || `${item.product_name}_${item.product_sku}`;
             acc.push({
               pl_date: plDate,
               total_box_count: item.box_count || 0,
               packing_codes: [item.packing_code], // 포장코드 추적을 위한 배열 추가
               product_names: [item.product_name],
+              product_keys: [productKey], // 제품 키 추적을 위한 배열 추가
               logistic_companies: item.logistic_company ? [item.logistic_company] : [],
               total_shipping_cost: 0, // logistic_payment 테이블에서 조회
               paid_shipping_count: 0, // logistic_payment 테이블에서 조회
@@ -191,6 +209,155 @@ const MJPackingList = () => {
     fetchPackingLists();
   };
 
+  // 삭제 미리보기 데이터 가져오기
+  const fetchDeletePreview = async (plDate) => {
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        throw new Error('인증 토큰이 없습니다.');
+      }
+
+      const dateParam = plDate === '날짜 미지정' ? 'no-date' : plDate;
+      
+      const response = await fetch(`/api/packing-list/by-date/${dateParam}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error('삭제 미리보기 데이터 조회에 실패했습니다.');
+      }
+
+      const result = await response.json();
+      
+      if (result.success) {
+        setDeletePreviewData(result.data);
+        setPendingDeleteDate(plDate);
+        setIsDeletePreviewOpen(true);
+      } else {
+        throw new Error(result.error || '삭제 미리보기 데이터 조회에 실패했습니다.');
+      }
+    } catch (error) {
+      console.error('❌ [fetchDeletePreview] 삭제 미리보기 조회 오류:', error);
+      toast.error(`삭제 미리보기 조회 실패: ${error.message}`);
+    }
+  };
+
+  // 삭제 미리보기 모달 닫기
+  const closeDeletePreview = () => {
+    setIsDeletePreviewOpen(false);
+    setDeletePreviewData(null);
+    setPendingDeleteDate(null);
+  };
+
+  // 실제 삭제 실행
+  const executeDelete = async () => {
+    if (!pendingDeleteDate) return;
+
+    console.log('🗑️ [executeDelete] 실제 삭제 실행:', {
+      plDate: pendingDeleteDate,
+      isAdmin,
+      timestamp: new Date().toISOString()
+    });
+
+    try {
+      // 로딩 상태 표시
+      toast.loading('패킹리스트를 삭제하는 중...');
+
+      const token = localStorage.getItem('token');
+      if (!token) {
+        throw new Error('인증 토큰이 없습니다.');
+      }
+
+      // 날짜 파라미터 처리
+      const dateParam = pendingDeleteDate === '날짜 미지정' ? 'no-date' : pendingDeleteDate;
+
+      // 서버에서 해당 날짜의 패킹리스트 삭제
+      const response = await fetch(`/api/packing-list/by-date/${dateParam}`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      const result = await response.json();
+      toast.dismiss();
+
+      if (result.success) {
+        console.log('✅ [executeDelete] 패킹리스트 삭제 성공:', result);
+        
+        // 클라이언트 삭제 로그 기록
+        const clientDeleteLog = {
+          action: 'DELETE_PACKING_LIST_BY_DATE',
+          date: pendingDeleteDate,
+          deletedCount: result.deletedCount,
+          affectedProjects: result.affectedProjects,
+          deletedAt: new Date().toISOString(),
+          userAgent: navigator.userAgent,
+          timestamp: Date.now()
+        };
+        
+        console.log('📝 [executeDelete] 클라이언트 삭제 로그:', clientDeleteLog);
+        
+        // 성공 메시지 표시
+        toast.success(`"${pendingDeleteDate}" 출고일자의 패킹리스트가 삭제되었습니다. (${result.deletedCount}개 항목)`);
+        
+        // 미리보기 모달 닫기
+        closeDeletePreview();
+        
+        // 목록 새로고침
+        await fetchPackingLists();
+        
+      } else {
+        console.error('❌ [executeDelete] 패킹리스트 삭제 실패:', result);
+        toast.error(result.error || '패킹리스트 삭제에 실패했습니다.');
+      }
+
+    } catch (error) {
+      console.error('❌ [executeDelete] 패킹리스트 삭제 중 오류:', {
+        plDate: pendingDeleteDate,
+        error: error.message,
+        stack: error.stack
+      });
+
+      toast.dismiss();
+      toast.error(`패킹리스트 삭제 중 오류가 발생했습니다: ${error.message}`);
+    }
+  };
+
+  // 특정 날짜의 패킹리스트 삭제 (미리보기)
+  const handleDeletePackingList = async (plDate) => {
+    console.log('🗑️ [handleDeletePackingList] 패킹리스트 삭제 시작:', {
+      plDate,
+      isAdmin,
+      timestamp: new Date().toISOString()
+    });
+
+    try {
+      // Admin 권한 확인
+      if (!isAdmin) {
+        console.log('🚫 [handleDeletePackingList] Admin 권한이 없어 삭제 불가');
+        toast.error('패킹리스트 삭제는 관리자만 가능합니다.');
+        return;
+      }
+
+      // 삭제 미리보기 데이터 가져오기
+      await fetchDeletePreview(plDate);
+
+    } catch (error) {
+      console.error('❌ [handleDeletePackingList] 패킹리스트 삭제 중 오류:', {
+        plDate,
+        error: error.message,
+        stack: error.stack
+      });
+
+      toast.dismiss();
+      toast.error(`패킹리스트 삭제 중 오류가 발생했습니다: ${error.message}`);
+    }
+  };
+
   // 출고일자 클릭 시 상세페이지로 이동
   const handleDateClick = (plDate) => {
     console.log('🔗 [MJPackingList] 출고일자 클릭 시작');
@@ -293,7 +460,7 @@ const MJPackingList = () => {
   }
 
   return (
-    <div className="container mx-auto px-4 py-8">
+    <div className="w-full max-w-none px-6 py-8">
       <div className="mb-6">
         <div className="flex items-center justify-between">
           <div>
@@ -391,47 +558,50 @@ const MJPackingList = () => {
       )}
 
       {/* 패킹 리스트 테이블 */}
-      <div className="bg-white shadow-md rounded-lg overflow-hidden">
+      <div className="bg-white shadow-md rounded-lg overflow-hidden mx-2">
         <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
+          <table className="w-full divide-y divide-gray-200" style={{ minWidth: '1400px' }}>
             <thead className="bg-gray-50">
               <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-16">
                   번호
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-32">
                   출고일자
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-24">
                   총 박스수
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-48">
                   포함 상품명
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-32">
                   물류회사
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-24">
                   배송비
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-32">
                   배송비 결제여부
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-24">
                   물류비 상세
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-20">
                   상품 개수
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-20">
                   상세보기
+                </th>
+                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-20">
+                  삭제
                 </th>
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
               {packingLists.length === 0 ? (
                 <tr>
-                  <td colSpan="10" className="px-6 py-12 text-center text-gray-500">
+                  <td colSpan="11" className="px-6 py-12 text-center text-gray-500">
                     저장된 패킹 리스트가 없습니다.
                   </td>
                 </tr>
@@ -441,25 +611,25 @@ const MJPackingList = () => {
                     key={item.pl_date} 
                     className="hover:bg-gray-50 transition-colors"
                   >
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                    <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900 text-center">
                       {(currentPage - 1) * itemsPerPage + index + 1}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold text-gray-900">
-                      <div className="flex items-center">
+                    <td className="px-4 py-3 whitespace-nowrap text-sm font-semibold text-gray-900 text-center">
+                      <div className="flex items-center justify-center">
                         <span className="inline-flex items-center px-3 py-2 rounded-lg bg-gray-50 text-gray-700 border border-gray-200 font-medium">
                           📅 {item.pl_date === '날짜 미지정' ? '날짜 미지정' : new Date(item.pl_date).toLocaleDateString('ko-KR')}
                         </span>
                       </div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                    <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900 text-center">
                       <div>
                         <span className="font-semibold text-lg text-gray-700">
                           {item.total_box_count.toLocaleString()} 박스
                         </span>
                       </div>
                     </td>
-                    <td className="px-6 py-4 text-sm text-gray-900">
-                      <div className="max-w-md">
+                    <td className="px-4 py-3 text-sm text-gray-900 text-center">
+                      <div className="max-w-md flex justify-center">
                         {(() => {
                           // 상품명별 개수 계산
                           const productCounts = {};
@@ -492,8 +662,8 @@ const MJPackingList = () => {
                         })()}
                       </div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      <div className="space-y-1">
+                    <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900 text-center">
+                      <div className="space-y-1 flex flex-col items-center">
                         {item.logistic_companies.length > 0 ? (
                           item.logistic_companies.map((company, companyIndex) => (
                             <span key={companyIndex} className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-700">
@@ -505,8 +675,8 @@ const MJPackingList = () => {
                         )}
                       </div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      <div className="flex flex-col">
+                    <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900 text-center">
+                      <div className="flex flex-col items-center">
                         <span 
                           className="font-semibold text-lg text-orange-600 cursor-pointer hover:text-orange-700 transition-colors"
                           onClick={(e) => {
@@ -519,8 +689,8 @@ const MJPackingList = () => {
                         </span>
                       </div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      <div className="flex flex-col items-start">
+                    <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900 text-center">
+                      <div className="flex flex-col items-center">
                         <div className="flex items-center space-x-2 mb-1">
                           <span 
                             className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 cursor-pointer hover:bg-green-200 transition-colors"
@@ -545,7 +715,7 @@ const MJPackingList = () => {
                         </div>
                       </div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                    <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900 text-center">
                       <div className="flex justify-center">
                         <button
                           onClick={(e) => {
@@ -559,7 +729,7 @@ const MJPackingList = () => {
                         </button>
                       </div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                    <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900 text-center">
                       <div className="flex justify-center">
                         <button
                           onClick={(e) => {
@@ -574,7 +744,7 @@ const MJPackingList = () => {
                         </button>
                       </div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                    <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900 text-center">
                       <div className="flex justify-center">
                         <button
                           onClick={(e) => {
@@ -588,6 +758,24 @@ const MJPackingList = () => {
                         </button>
                       </div>
                     </td>
+                    <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900 text-center">
+                      <div className="flex justify-center">
+                        {isAdmin ? (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeletePackingList(item.pl_date);
+                            }}
+                            className="inline-flex items-center justify-center w-8 h-8 bg-red-100 text-red-600 rounded-lg hover:bg-red-200 transition-colors"
+                            title={`${item.pl_date} 출고일자의 패킹리스트 삭제 (Admin 전용)`}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        ) : (
+                          <span className="text-gray-400 text-xs">권한 없음</span>
+                        )}
+                      </div>
+                    </td>
                   </tr>
                 ))
               )}
@@ -598,7 +786,7 @@ const MJPackingList = () => {
 
       {/* 페이징 컨트롤 */}
       {packingLists.length > 0 && (
-        <div className="bg-white px-6 py-4 border-t border-gray-200">
+        <div className="bg-white px-6 py-4 border-t border-gray-200 mx-2">
           <div className="flex items-center justify-between">
             {/* 페이지당 항목 수 선택 */}
             <div className="flex items-center space-x-2">
@@ -702,6 +890,120 @@ const MJPackingList = () => {
               onClick={() => navigate('/dashboard/mj-packing-list/logistic-payment')}
               title="클릭하여 물류 결제 관리 페이지로 이동"
             >{packingLists.reduce((sum, item) => sum + item.paid_shipping_count, 0)}건 결제완료 / {packingLists.reduce((sum, item) => sum + item.unpaid_shipping_count, 0)}건 미결제</span></div>
+          </div>
+        </div>
+      )}
+
+      {/* 삭제 미리보기 모달 */}
+      {isDeletePreviewOpen && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full mx-4 max-h-[80vh] overflow-hidden">
+            {/* 모달 헤더 */}
+            <div className="px-6 py-4 border-b border-gray-200 bg-red-50">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-3">
+                  <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center">
+                    <Trash2 className="w-5 h-5 text-red-600" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-semibold text-gray-900">
+                      패킹리스트 삭제 확인
+                    </h3>
+                    <p className="text-sm text-gray-600">
+                      "{pendingDeleteDate}" 출고일자의 패킹리스트를 삭제하시겠습니까?
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={closeDeletePreview}
+                  className="text-gray-400 hover:text-gray-600 transition-colors"
+                >
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+            </div>
+
+            {/* 모달 내용 */}
+            <div className="px-6 py-4 max-h-96 overflow-y-auto">
+              {deletePreviewData && deletePreviewData.length > 0 ? (
+                <div className="space-y-4">
+                  <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                    <div className="flex items-center space-x-2">
+                      <div className="w-5 h-5 bg-yellow-400 rounded-full flex items-center justify-center">
+                        <span className="text-white text-xs font-bold">!</span>
+                      </div>
+                      <span className="text-yellow-800 font-medium">
+                        다음 {deletePreviewData.length}개의 패킹리스트 항목이 삭제됩니다:
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="space-y-3">
+                    {deletePreviewData.map((item, index) => (
+                      <div key={index} className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                          <div>
+                            <span className="font-medium text-gray-700">포장코드:</span>
+                            <p className="text-gray-900">{item.packing_code}</p>
+                          </div>
+                          <div>
+                            <span className="font-medium text-gray-700">상품명:</span>
+                            <p className="text-gray-900">{item.product_name}</p>
+                          </div>
+                          <div>
+                            <span className="font-medium text-gray-700">박스수:</span>
+                            <p className="text-gray-900">{item.box_count}개</p>
+                          </div>
+                          <div>
+                            <span className="font-medium text-gray-700">수량:</span>
+                            <p className="text-gray-900">
+                              {(item.box_count || 0) * (item.packaging_count || 0) * (item.packaging_method || 0)}개
+                            </p>
+                          </div>
+                        </div>
+                        {item.project_id && (
+                          <div className="mt-2 text-xs text-blue-600">
+                            프로젝트 ID: {item.project_id}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                    <div className="flex items-center space-x-2">
+                      <div className="w-5 h-5 bg-red-400 rounded-full flex items-center justify-center">
+                        <span className="text-white text-xs font-bold">!</span>
+                      </div>
+                      <span className="text-red-800 font-medium">
+                        ⚠️ 이 작업은 되돌릴 수 없습니다. 삭제 후에는 복구할 수 없습니다.
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="text-center py-8">
+                  <div className="text-gray-500">삭제할 데이터가 없습니다.</div>
+                </div>
+              )}
+            </div>
+
+            {/* 모달 푸터 */}
+            <div className="px-6 py-4 border-t border-gray-200 bg-gray-50 flex justify-end space-x-3">
+              <button
+                onClick={closeDeletePreview}
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+              >
+                취소
+              </button>
+              <button
+                onClick={executeDelete}
+                disabled={!deletePreviewData || deletePreviewData.length === 0}
+                className="px-4 py-2 text-sm font-medium text-white bg-red-600 border border-transparent rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                삭제 실행
+              </button>
+            </div>
           </div>
         </div>
       )}

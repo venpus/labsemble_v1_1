@@ -164,11 +164,13 @@ const PackingCodeDetailList = () => {
             box_count: item.box_count,
             product_name: item.product_name,
             product_sku: item.product_sku,
+            client_product_id: item.client_product_id,
             pl_date: item.pl_date
           });
 
-          // 제품 키 생성 (제품명 + SKU)
-          const productKey = `${item.product_name}_${item.product_sku}`;
+          // 제품 키 생성 (client_product_id 우선, 없으면 제품명 + SKU + ID)
+          const productKey = item.client_product_id || 
+            `${item.product_name}_${item.product_sku}_${item.id}`;
           
           const existingProduct = acc.find(product => product.product_key === productKey);
           
@@ -194,6 +196,7 @@ const PackingCodeDetailList = () => {
               product_name: item.product_name,
               product_sku: item.product_sku,
               product_image: item.product_image,
+              client_product_id: item.client_product_id, // client_product_id 추가
               total_quantity: itemQuantity,
               packing_codes: [{
                 packing_code: item.packing_code,
@@ -279,10 +282,11 @@ const PackingCodeDetailList = () => {
 
       if (response.ok) {
         const userData = await response.json();
-        setIsAdmin(userData.role === 'admin');
-        console.log(' [PackingCodeDetailList] 사용자 권한 확인:', {
-          role: userData.role,
-          isAdmin: userData.role === 'admin'
+        const adminStatus = Boolean(userData.is_admin);
+        setIsAdmin(adminStatus);
+        console.log('🔐 [PackingCodeDetailList] 사용자 권한 확인:', {
+          is_admin: userData.is_admin,
+          isAdmin: adminStatus
         });
       }
     } catch (error) {

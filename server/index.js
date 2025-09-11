@@ -255,6 +255,21 @@ app.get('/api/migration/status', async (req, res) => {
       console.log('mj_project 테이블 quantity 필드 확인 중 오류 (무시됨):', error.message);
     }
 
+    // 소프트 삭제 필드 마이그레이션 상태 확인
+    let softDeleteStatus = { has_soft_delete_fields: false, total_packing_items: 0, deleted_items: 0 };
+    try {
+      const [softDeleteColumns] = await pool.execute("SHOW COLUMNS FROM mj_packing_list LIKE 'is_deleted'");
+      const [softDeleteData] = await pool.execute("SELECT COUNT(*) as total, COUNT(CASE WHEN is_deleted = TRUE THEN 1 END) as deleted FROM mj_packing_list");
+      
+      softDeleteStatus = {
+        has_soft_delete_fields: softDeleteColumns.length > 0,
+        total_packing_items: softDeleteData[0].total,
+        deleted_items: softDeleteData[0].deleted
+      };
+    } catch (error) {
+      console.log('소프트 삭제 필드 확인 중 오류 (무시됨):', error.message);
+    }
+
     const migration_status = {
       // mj_project 테이블 상태
       has_additional_costs: projects[0].projects_with_additional_costs > 0,
@@ -281,7 +296,10 @@ app.get('/api/migration/status', async (req, res) => {
       logistic_payment: logisticPaymentStatus,
       
       // mj_project 테이블 quantity 필드 상태
-      mj_project_quantity: mjProjectQuantityStatus
+      mj_project_quantity: mjProjectQuantityStatus,
+      
+      // 소프트 삭제 필드 상태
+      soft_delete: softDeleteStatus
     };
 
     res.json({ migration_status });
@@ -439,9 +457,15 @@ const startServer = async () => {
       process.exit(1);
     }
 
-    // 데이터베이스 마이그레이션은 database.js에서 자동으로 실행됩니다
-    console.log('🔧 데이터베이스 마이그레이션 확인 중...');
-    console.log('🔄 자동 마이그레이션이 백그라운드에서 실행 중입니다...');
+    // 데이터베이스 마이그레이션 실행
+    console.log('🔧 데이터베이스 마이그레이션 실행 중...');
+    try {
+      await runAllMigrations();
+      console.log('✅ 모든 마이그레이션이 성공적으로 완료되었습니다!');
+    } catch (error) {
+      console.error('❌ 마이그레이션 실행 중 오류 발생:', error);
+      console.log('⚠️  서버는 계속 실행되지만 일부 기능이 제한될 수 있습니다.');
+    }
     
     console.log('✅ 데이터베이스 초기화 완료!');
     

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Package, ArrowLeft, Plus, Trash2, Edit, Search } from 'lucide-react';
+import { Package, ArrowLeft, Plus, Trash2, Edit, Search, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import ProjectSearchModal from './ProjectSearchModal';
 import { toast } from 'react-hot-toast';
@@ -36,6 +36,47 @@ const MakePackingList = () => {
 
   // 상품 추가 중 상태
   const [addingProduct, setAddingProduct] = useState({});
+  
+  // 사용자 권한 상태
+  const [isAdmin, setIsAdmin] = useState(false);
+  
+  // 일괄 삭제 관련 상태
+  const [selectedProducts, setSelectedProducts] = useState(new Set());
+  const [isBulkDeleteModalOpen, setIsBulkDeleteModalOpen] = useState(false);
+  
+  // 개별 제품 삭제 미리보기 상태
+  const [isProductDeletePreviewOpen, setIsProductDeletePreviewOpen] = useState(false);
+  const [productToDelete, setProductToDelete] = useState(null);
+
+  // 사용자 권한 확인
+  const checkUserRole = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        setIsAdmin(false);
+        return;
+      }
+
+      const response = await fetch('/api/users/me', {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      if (response.ok) {
+        const userData = await response.json();
+        const adminStatus = Boolean(userData.is_admin);
+        setIsAdmin(adminStatus);
+        console.log('🔐 [MakePackingList] 사용자 권한 확인:', {
+          is_admin: userData.is_admin,
+          isAdmin: adminStatus
+        });
+      }
+    } catch (error) {
+      console.error('❌ [MakePackingList] 사용자 권한 확인 오류:', error);
+      setIsAdmin(false);
+    }
+  };
 
   // exportQuantity 계산 함수
   const calculateExportQuantity = useCallback((packagingMethod, packagingCount, boxCount) => {
@@ -143,7 +184,30 @@ const MakePackingList = () => {
       });
 
       if (!response.ok) {
-        throw new Error('프로젝트 export_quantity 계산에 실패했습니다.');
+        // 서버에서 반환한 실제 오류 메시지 확인
+        let errorMessage = '프로젝트 export_quantity 계산에 실패했습니다.';
+        let errorDetails = null;
+        
+        try {
+          const errorResult = await response.json();
+          errorMessage = errorResult.error || errorResult.message || errorMessage;
+          errorDetails = errorResult.details;
+          
+          console.error('❌ [calculateProjectExportQuantity] 서버 오류 응답:', {
+            status: response.status,
+            statusText: response.statusText,
+            errorResult
+          });
+          
+          // 수량 초과 오류인 경우 상세 정보 표시
+          if (errorResult.details && errorResult.details.totalExportQuantity && errorResult.details.entryQuantity) {
+            const { totalExportQuantity, entryQuantity, difference } = errorResult.details;
+            errorMessage = `출고 수량(${totalExportQuantity.toLocaleString()})이 입고 수량(${entryQuantity.toLocaleString()})을 ${difference.toLocaleString()}개 초과합니다.`;
+          }
+        } catch (parseError) {
+          console.error('❌ [calculateProjectExportQuantity] 오류 응답 파싱 실패:', parseError);
+        }
+        throw new Error(errorMessage);
       }
 
       const result = await response.json();
@@ -178,8 +242,25 @@ const MakePackingList = () => {
     } catch (error) {
       console.error('❌ [calculateProjectExportQuantity] 프로젝트 export_quantity 계산 오류:', {
         error: error.message,
-        projectId
+        projectId,
+        stack: error.stack,
+        timestamp: new Date().toISOString()
       });
+      
+      // 사용자에게 구체적인 오류 정보 표시
+      if (error.message.includes('출고 수량') && error.message.includes('입고 수량')) {
+        toast.error(`수량 초과 오류: ${error.message}`, {
+          duration: 5000,
+          style: {
+            background: '#fee2e2',
+            color: '#dc2626',
+            border: '1px solid #fca5a5'
+          }
+        });
+      } else {
+        toast.error(`프로젝트 출고 수량 계산 실패: ${error.message}`);
+      }
+      
       return false;
     }
   }, []);
@@ -299,8 +380,8 @@ const MakePackingList = () => {
         finalLogisticCompany = packingGroup.logisticCompany;
       }
       
-      // projectId 우선순위: 상품 > 포장코드 그룹 > 전역 선택
-      const projectIdFromData = product.projectId || packingGroup?.projectId || selectedProjectId;
+      // projectId 설정: 수동 입력 상품은 null, 프로젝트 검색 상품은 해당 프로젝트 ID
+      const projectIdFromData = product.projectId || null;
       
       const saveData = {
         packing_code: packingCode,
@@ -406,7 +487,76 @@ const MakePackingList = () => {
     }
   }, []);
 
-  // useEffect 제거 - 상태 동기화 문제로 인한 저장 실패 방지
+  // 컴포넌트 마운트 시 권한 확인
+  useEffect(() => {
+    checkUserRole();
+  }, []);
+
+  // packingData 변경 감지하여 자동 저장 (제품 삭제 후에도 실행)
+  useEffect(() => {
+    // packingData가 비어있거나 초기 로딩 중이면 실행하지 않음
+    if (packingData.length === 0) {
+      return;
+    }
+    
+    console.log('🔄 [useEffect] packingData 변경 감지, 자동 저장 시작:', {
+      packingDataLength: packingData.length,
+      timestamp: new Date().toISOString()
+    });
+    
+    // 각 포장코드 그룹의 상품들을 자동 저장
+    const performAutoSave = async () => {
+      try {
+        setAutoSaveStatus('saving');
+        
+        const savePromises = [];
+        
+        packingData.forEach(packingGroup => {
+          packingGroup.products.forEach(product => {
+            // 제품 삭제 후에는 forceInsert: false (중복 저장 방지)
+            savePromises.push(
+              autoSavePackingList(packingGroup.packingCode, product, false)
+            );
+          });
+        });
+        
+        // 모든 저장 작업 병렬 실행
+        const results = await Promise.allSettled(savePromises);
+        
+        // 결과 확인
+        const successCount = results.filter(result => result.status === 'fulfilled').length;
+        const failureCount = results.filter(result => result.status === 'rejected').length;
+        
+        console.log('📊 [useEffect] 자동 저장 결과:', {
+          total: results.length,
+          success: successCount,
+          failure: failureCount
+        });
+        
+        if (failureCount === 0) {
+          setAutoSaveStatus('success');
+          setLastSavedAt(new Date());
+          
+          // 3초 후 상태를 idle로 변경
+          setTimeout(() => {
+            setAutoSaveStatus('idle');
+          }, 3000);
+        } else {
+          setAutoSaveStatus('error');
+          console.error('❌ [useEffect] 일부 자동 저장 실패:', results);
+        }
+        
+      } catch (error) {
+        console.error('❌ [useEffect] 자동 저장 중 오류:', error);
+        setAutoSaveStatus('error');
+      }
+    };
+    
+    // 디바운스를 위한 타이머 설정 (500ms 후 실행)
+    const timer = setTimeout(performAutoSave, 500);
+    
+    return () => clearTimeout(timer);
+  }, [packingData, autoSavePackingList]);
 
   // 포커스 아웃 시 자동 저장
   const handleBlur = useCallback((packingCode, product) => {
@@ -737,8 +887,14 @@ const MakePackingList = () => {
           console.log('✅ [performFullSave] 2단계 완료: 프로젝트 출고 수량 계산/업데이트 완료');
           return { success: true, message: '패킹리스트 저장 및 프로젝트 출고 수량 계산/업데이트가 완료되었습니다.' };
         } else {
-          console.error('❌ [performFullSave] 2단계 실패: 프로젝트 출고 수량 계산/업데이트 실패');
-          return { success: false, message: '패킹리스트는 저장되었으나 프로젝트 출고 수량 계산/업데이트에 실패했습니다.' };
+          console.error('❌ [performFullSave] 2단계 실패: 프로젝트 출고 수량 계산/업데이트 실패', {
+            selectedProjectId,
+            timestamp: new Date().toISOString()
+          });
+          return { 
+            success: false, 
+            message: '패킹리스트는 저장되었으나 프로젝트 출고 수량 계산/업데이트에 실패했습니다. 서버 로그를 확인해주세요.' 
+          };
         }
       } else {
         console.log('✅ [performFullSave] 완료: 프로젝트 ID가 없어 export_quantity 업데이트 건너뛰기');
@@ -787,7 +943,7 @@ const MakePackingList = () => {
             packagingCount: 0,
             exportQuantity: 0, // 출고 수량 초기화
             firstImage: null,  // 이미지 정보 초기화
-            projectId: selectedProjectId // 선택된 프로젝트 ID 설정
+            projectId: null // 수동 입력 상품은 projectId를 null로 설정
           };
     
     console.log('🆕 [addProduct] 새 상품 생성:', {
@@ -875,27 +1031,282 @@ const MakePackingList = () => {
     setPackingData(prev => prev.filter(item => item.packingCode !== packingCode));
   };
 
-  // 상품 삭제
-  const removeProduct = (packingCode, productId) => {
-    // 삭제 전에 해당 상품을 DB에서 제거
-    const packingGroup = packingData.find(item => item.packingCode === packingCode);
-    if (packingGroup) {
-      const productToDelete = packingGroup.products.find(product => product.id === productId);
-      if (productToDelete) {
-        // DB에서 삭제하는 API 호출 (선택사항)
-        // deletePackingListItems(packingCode, productId);
-      }
+  // 제품 삭제 미리보기 열기
+  const openProductDeletePreview = (packingCode, productId) => {
+    console.log('🔍 [openProductDeletePreview] 제품 삭제 미리보기 열기:', {
+      packingCode,
+      productId,
+      isAdmin,
+      timestamp: new Date().toISOString()
+    });
+    
+    // Admin 권한 확인
+    if (!isAdmin) {
+      console.log('🚫 [openProductDeletePreview] Admin 권한이 없어 삭제 불가');
+      toast.error('제품 삭제는 관리자만 가능합니다.');
+      return;
     }
     
-    setPackingData(prev => prev.map(item => {
-      if (item.packingCode === packingCode) {
-        return {
-          ...item,
-          products: item.products.filter(product => product.id !== productId)
-        };
+    // 삭제할 상품 정보 확인
+    const packingGroup = packingData.find(item => item.packingCode === packingCode);
+    if (!packingGroup) {
+      console.error('❌ [openProductDeletePreview] 포장코드 그룹을 찾을 수 없음:', packingCode);
+      toast.error('삭제할 상품을 찾을 수 없습니다.');
+      return;
+    }
+    
+    const product = packingGroup.products.find(p => p.id === productId);
+    if (!product) {
+      console.error('❌ [openProductDeletePreview] 삭제할 상품을 찾을 수 없음:', productId);
+      toast.error('삭제할 상품을 찾을 수 없습니다.');
+      return;
+    }
+    
+    setProductToDelete({ ...product, packingCode });
+    setIsProductDeletePreviewOpen(true);
+  };
+
+  // 제품 삭제 미리보기 닫기
+  const closeProductDeletePreview = () => {
+    setIsProductDeletePreviewOpen(false);
+    setProductToDelete(null);
+  };
+
+  // 실제 제품 삭제 실행
+  const executeProductDelete = async () => {
+    if (!productToDelete) return;
+
+    console.log('🗑️ [executeProductDelete] 제품 삭제 실행:', {
+      productId: productToDelete.id,
+      productName: productToDelete.productName,
+      projectId: productToDelete.projectId,
+      packingCode: productToDelete.packingCode,
+      isAdmin,
+      timestamp: new Date().toISOString()
+    });
+    
+    try {
+      // 로딩 상태 표시
+      toast.loading('제품을 삭제하는 중...');
+      
+      // 서버에서 제품 삭제
+      const token = localStorage.getItem('token');
+      if (!token) {
+        throw new Error('인증 토큰이 없습니다.');
       }
-      return item;
-    }));
+      
+      const response = await fetch(`/api/packing-list/product/${productToDelete.id}`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      
+      const result = await response.json();
+      toast.dismiss();
+      
+      if (result.success) {
+        console.log('✅ [executeProductDelete] 서버에서 제품 삭제 성공:', result);
+        
+        // 클라이언트 삭제 로그 기록
+        const clientDeleteLog = {
+          action: 'DELETE_PRODUCT',
+          productId: productToDelete.id,
+          productName: productToDelete.productName,
+          projectId: productToDelete.projectId,
+          packingCode: productToDelete.packingCode,
+          deletedAt: new Date().toISOString(),
+          userAgent: navigator.userAgent,
+          timestamp: Date.now()
+        };
+        
+        console.log('📝 [executeProductDelete] 클라이언트 삭제 로그:', clientDeleteLog);
+        
+        // 클라이언트 상태에서 제품 제거
+        setPackingData(prev => prev.map(item => {
+          if (item.packingCode === productToDelete.packingCode) {
+            return {
+              ...item,
+              products: item.products.filter(product => product.id !== productToDelete.id)
+            };
+          }
+          return item;
+        }));
+        
+        // 성공 메시지 표시
+        toast.success(`"${productToDelete.productName}" 상품이 삭제되었습니다.`);
+        
+        // 프로젝트가 있는 경우 export_quantity 재계산 알림
+        if (productToDelete.projectId) {
+          console.log('🔄 [executeProductDelete] 프로젝트 export_quantity가 자동으로 재계산되었습니다:', {
+            projectId: productToDelete.projectId
+          });
+        }
+        
+        // 미리보기 모달 닫기
+        closeProductDeletePreview();
+        
+      } else {
+        console.error('❌ [executeProductDelete] 서버에서 제품 삭제 실패:', result);
+        toast.error(result.error || '제품 삭제에 실패했습니다.');
+      }
+      
+    } catch (error) {
+      console.error('❌ [executeProductDelete] 제품 삭제 중 오류:', {
+        productId: productToDelete.id,
+        error: error.message,
+        stack: error.stack
+      });
+      
+      toast.dismiss();
+      toast.error(`제품 삭제 중 오류가 발생했습니다: ${error.message}`);
+    }
+  };
+
+  // 상품 삭제 (미리보기 열기)
+  const removeProduct = (packingCode, productId) => {
+    openProductDeletePreview(packingCode, productId);
+  };
+
+  // 제품 선택/해제
+  const toggleProductSelection = (productId) => {
+    setSelectedProducts(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(productId)) {
+        newSet.delete(productId);
+      } else {
+        newSet.add(productId);
+      }
+      return newSet;
+    });
+  };
+
+  // 전체 선택/해제
+  const toggleAllProductsSelection = () => {
+    const allProductIds = new Set();
+    packingData.forEach(packingGroup => {
+      packingGroup.products.forEach(product => {
+        allProductIds.add(product.id);
+      });
+    });
+
+    if (selectedProducts.size === allProductIds.size) {
+      setSelectedProducts(new Set());
+    } else {
+      setSelectedProducts(allProductIds);
+    }
+  };
+
+  // 일괄 삭제 실행
+  const executeBulkDelete = async () => {
+    if (selectedProducts.size === 0) {
+      toast.error('삭제할 제품을 선택해주세요.');
+      return;
+    }
+
+    console.log('🗑️ [executeBulkDelete] 일괄 삭제 시작:', {
+      selectedCount: selectedProducts.size,
+      selectedProducts: Array.from(selectedProducts),
+      isAdmin,
+      timestamp: new Date().toISOString()
+    });
+
+    try {
+      // Admin 권한 확인
+      if (!isAdmin) {
+        console.log('🚫 [executeBulkDelete] Admin 권한이 없어 삭제 불가');
+        toast.error('일괄 삭제는 관리자만 가능합니다.');
+        return;
+      }
+
+      // 로딩 상태 표시
+      toast.loading(`${selectedProducts.size}개 제품을 삭제하는 중...`);
+
+      const token = localStorage.getItem('token');
+      if (!token) {
+        throw new Error('인증 토큰이 없습니다.');
+      }
+
+      // 선택된 제품들을 순차적으로 삭제
+      const deletePromises = Array.from(selectedProducts).map(async (productId) => {
+        try {
+          const response = await fetch(`/api/packing-list/product/${productId}`, {
+            method: 'DELETE',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`
+            }
+          });
+
+          const result = await response.json();
+          return { productId, success: result.success, result };
+        } catch (error) {
+          console.error(`❌ [executeBulkDelete] 제품 ${productId} 삭제 실패:`, error);
+          return { productId, success: false, error: error.message };
+        }
+      });
+
+      const results = await Promise.allSettled(deletePromises);
+      toast.dismiss();
+
+      // 결과 분석
+      const successCount = results.filter(r => r.status === 'fulfilled' && r.value.success).length;
+      const failCount = results.length - successCount;
+
+      console.log('📊 [executeBulkDelete] 일괄 삭제 결과:', {
+        total: results.length,
+        success: successCount,
+        failed: failCount
+      });
+
+      // 클라이언트 상태에서 성공한 제품들 제거
+      if (successCount > 0) {
+        setPackingData(prev => prev.map(packingGroup => ({
+          ...packingGroup,
+          products: packingGroup.products.filter(product => 
+            !selectedProducts.has(product.id) || 
+            !results.find(r => r.status === 'fulfilled' && r.value.productId === product.id && r.value.success)
+          )
+        })));
+
+        // 선택 상태 초기화
+        setSelectedProducts(new Set());
+        setIsBulkDeleteModalOpen(false);
+      }
+
+      // 결과 메시지 표시
+      if (successCount > 0 && failCount === 0) {
+        toast.success(`${successCount}개 제품이 성공적으로 삭제되었습니다.`);
+      } else if (successCount > 0 && failCount > 0) {
+        toast.success(`${successCount}개 제품이 삭제되었습니다. ${failCount}개 제품 삭제에 실패했습니다.`);
+      } else {
+        toast.error('모든 제품 삭제에 실패했습니다.');
+      }
+
+    } catch (error) {
+      console.error('❌ [executeBulkDelete] 일괄 삭제 중 오류:', {
+        error: error.message,
+        stack: error.stack
+      });
+
+      toast.dismiss();
+      toast.error(`일괄 삭제 중 오류가 발생했습니다: ${error.message}`);
+    }
+  };
+
+  // 일괄 삭제 모달 열기
+  const openBulkDeleteModal = () => {
+    if (selectedProducts.size === 0) {
+      toast.error('삭제할 제품을 선택해주세요.');
+      return;
+    }
+    setIsBulkDeleteModalOpen(true);
+  };
+
+  // 일괄 삭제 모달 닫기
+  const closeBulkDeleteModal = () => {
+    setIsBulkDeleteModalOpen(false);
   };
 
   // 상품 정보 수정
@@ -1107,13 +1518,36 @@ const MakePackingList = () => {
               </div>
             </div>
           </div>
-          <ActionButtons />
+          <div className="flex items-center space-x-3">
+            {selectedProducts.size > 0 && isAdmin && (
+              <button
+                onClick={openBulkDeleteModal}
+                className="inline-flex items-center px-4 py-2 text-sm font-medium text-white bg-red-600 border border-transparent rounded-lg hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 transition-colors"
+              >
+                <Trash2 className="w-4 h-4 mr-2" />
+                선택된 {selectedProducts.size}개 삭제
+              </button>
+            )}
+            <ActionButtons />
+          </div>
         </div>
         
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <div className="flex items-center space-x-2">
+                    <input
+                      type="checkbox"
+                      checked={selectedProducts.size > 0 && selectedProducts.size === packingData.reduce((total, group) => total + group.products.length, 0)}
+                      onChange={toggleAllProductsSelection}
+                      className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                      title="전체 선택/해제"
+                    />
+                    <span>선택</span>
+                  </div>
+                </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   포장코드
                 </th>
@@ -1149,7 +1583,7 @@ const MakePackingList = () => {
             <tbody className="bg-white divide-y divide-gray-200">
               {packingData.length === 0 ? (
                 <tr>
-                  <td colSpan="9" className="px-6 py-12 text-center">
+                  <td colSpan="10" className="px-6 py-12 text-center">
                     <div className="text-gray-500">
                       <Package className="w-12 h-12 mx-auto mb-4 text-gray-300" />
                       <p className="text-lg font-medium mb-2">패킹리스트가 비어있습니다</p>
@@ -1162,69 +1596,114 @@ const MakePackingList = () => {
                 <React.Fragment key={packingGroup.packingCode}>
                   {packingGroup.products.map((product, productIndex) => (
                     <tr key={product.id} className={`hover:bg-gray-50 ${groupIndex % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}>
+                      {/* 선택 체크박스 */}
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                        <input
+                          type="checkbox"
+                          checked={selectedProducts.has(product.id)}
+                          onChange={() => toggleProductSelection(product.id)}
+                          className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                          title="제품 선택/해제"
+                        />
+                      </td>
                       {/* 포장코드 셀 - 첫 번째 상품일 때만 표시하고 rowSpan 적용 */}
                       {productIndex === 0 && (
                         <td 
-                          rowSpan={packingGroup.products.length + 1} 
+                          rowSpan={packingGroup.products.length} 
                           className="px-6 py-4 whitespace-nowrap border-r border-gray-200 bg-blue-50"
                         >
-                          <input
-                            ref={(el) => {
-                              if (el) {
-                                packingCodeRefs.current[packingGroup.packingCode] = el;
-                              }
-                            }}
-                            type="text"
-                            value={editingPackingCodes[packingGroup.packingCode] !== undefined 
-                              ? editingPackingCodes[packingGroup.packingCode] 
-                              : packingGroup.packingCode
-                            }
-                            onChange={(e) => {
-                              const newPackingCode = e.target.value;
-                              setEditingPackingCodes(prev => ({
-                                ...prev,
-                                [packingGroup.packingCode]: newPackingCode
-                              }));
-                            }}
-                            onFocus={() => {
-                              // 포커스 시 현재 값을 임시 상태에 설정
-                              setEditingPackingCodes(prev => ({
-                                ...prev,
-                                [packingGroup.packingCode]: packingGroup.packingCode
-                              }));
-                            }}
-                            onBlur={(e) => {
-                              const newPackingCode = e.target.value;
-                              const oldPackingCode = packingGroup.packingCode;
-                              
-                              if (newPackingCode && newPackingCode !== oldPackingCode) {
-                                // 포커스가 벗어날 때만 자동저장 실행
-                                handlePackingCodeChange(oldPackingCode, newPackingCode);
-                              }
-                              
-                              // 임시 상태 정리
-                              setEditingPackingCodes(prev => {
-                                const newState = { ...prev };
-                                delete newState[oldPackingCode];
-                                return newState;
-                              });
-                            }}
-                            className="w-24 text-sm font-medium text-gray-900 mb-2 border border-gray-300 rounded px-2 py-1 bg-white"
-                            placeholder="코드"
-                          />
-                          <button
-                            onClick={() => removePackingCode(packingGroup.packingCode)}
-                            className="text-red-600 hover:text-red-900 text-xs"
-                            title="포장코드 삭제"
-                          >
-                            삭제
-                          </button>
+                          <div className="space-y-3">
+                            {/* 포장코드 입력 */}
+                            <div>
+                              <input
+                                ref={(el) => {
+                                  if (el) {
+                                    packingCodeRefs.current[packingGroup.packingCode] = el;
+                                  }
+                                }}
+                                type="text"
+                                value={editingPackingCodes[packingGroup.packingCode] !== undefined 
+                                  ? editingPackingCodes[packingGroup.packingCode] 
+                                  : packingGroup.packingCode
+                                }
+                                onChange={(e) => {
+                                  const newPackingCode = e.target.value;
+                                  setEditingPackingCodes(prev => ({
+                                    ...prev,
+                                    [packingGroup.packingCode]: newPackingCode
+                                  }));
+                                }}
+                                onFocus={() => {
+                                  // 포커스 시 현재 값을 임시 상태에 설정
+                                  setEditingPackingCodes(prev => ({
+                                    ...prev,
+                                    [packingGroup.packingCode]: packingGroup.packingCode
+                                  }));
+                                }}
+                                onBlur={(e) => {
+                                  const newPackingCode = e.target.value;
+                                  const oldPackingCode = packingGroup.packingCode;
+                                  
+                                  if (newPackingCode && newPackingCode !== oldPackingCode) {
+                                    // 포커스가 벗어날 때만 자동저장 실행
+                                    handlePackingCodeChange(oldPackingCode, newPackingCode);
+                                  }
+                                  
+                                  // 임시 상태 정리
+                                  setEditingPackingCodes(prev => {
+                                    const newState = { ...prev };
+                                    delete newState[oldPackingCode];
+                                    return newState;
+                                  });
+                                }}
+                                className="w-24 text-sm font-medium text-gray-900 border border-gray-300 rounded px-2 py-1 bg-white"
+                                placeholder="코드"
+                              />
+                            </div>
+                            
+                            {/* 상품 추가 버튼 */}
+                            <div>
+                              <button
+                                onClick={async () => await addProduct(packingGroup.packingCode)}
+                                disabled={addingProduct[packingGroup.packingCode]}
+                                className={`w-full inline-flex items-center justify-center px-3 py-2 text-white text-xs font-medium rounded-lg focus:outline-none focus:ring-2 focus:ring-offset-2 transition-colors ${
+                                  addingProduct[packingGroup.packingCode]
+                                    ? 'bg-gray-400 cursor-not-allowed focus:ring-gray-500'
+                                    : 'bg-blue-600 hover:bg-blue-700 focus:ring-blue-500'
+                                }`}
+                                title={`${packingGroup.packingCode}에 상품 추가`}
+                              >
+                                {addingProduct[packingGroup.packingCode] ? (
+                                  <>
+                                    <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-white mr-1"></div>
+                                    추가 중...
+                                  </>
+                                ) : (
+                                  <>
+                                    <Plus className="w-3 h-3 mr-1" />
+                                    상품 추가
+                                  </>
+                                )}
+                              </button>
+                            </div>
+                            
+                            {/* 포장코드 삭제 버튼 */}
+                            <div>
+                              <button
+                                onClick={() => removePackingCode(packingGroup.packingCode)}
+                                className="w-full text-red-600 hover:text-red-900 text-xs py-1 px-2 border border-red-300 rounded hover:bg-red-50 transition-colors"
+                                title="포장코드 삭제"
+                              >
+                                삭제
+                              </button>
+                            </div>
+                          </div>
                         </td>
                       )}
                       {/* 물류회사 셀 - 첫 번째 상품일 때만 표시하고 rowSpan 적용 */}
                       {productIndex === 0 && (
                         <td 
-                          rowSpan={packingGroup.products.length + 1} 
+                          rowSpan={packingGroup.products.length} 
                           className="px-6 py-4 whitespace-nowrap border-r border-gray-200"
                         >
                           <select
@@ -1268,7 +1747,7 @@ const MakePackingList = () => {
                       {/* 박스수 셀 - 첫 번째 상품일 때만 표시하고 rowSpan 적용 */}
                       {productIndex === 0 && (
                         <td 
-                          rowSpan={packingGroup.products.length + 1} 
+                          rowSpan={packingGroup.products.length} 
                           className="px-6 py-4 whitespace-nowrap border-r border-gray-200"
                         >
                           <input
@@ -1385,43 +1864,21 @@ const MakePackingList = () => {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                         <div className="flex space-x-2">
-                          <button
-                            onClick={() => removeProduct(packingGroup.packingCode, product.id)}
-                            className="text-red-600 hover:text-red-900"
-                            title="상품 삭제"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                          {isAdmin ? (
+                            <button
+                              onClick={() => removeProduct(packingGroup.packingCode, product.id)}
+                              className="text-red-600 hover:text-red-900"
+                              title="상품 삭제 (Admin 전용)"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          ) : (
+                            <span className="text-gray-400 text-xs">권한 없음</span>
+                          )}
                         </div>
                       </td>
                     </tr>
                   ))}
-                  {/* 포장 코드별 상품 추가 버튼 */}
-                  <tr className="bg-blue-100 border-b-4 border-blue-300">
-                    <td colSpan="6" className="px-6 py-4">
-                      <button
-                        onClick={async () => await addProduct(packingGroup.packingCode)}
-                        disabled={addingProduct[packingGroup.packingCode]}
-                        className={`inline-flex items-center px-4 py-2 text-white text-sm font-medium rounded-lg focus:outline-none focus:ring-2 focus:ring-offset-2 transition-colors ${
-                          addingProduct[packingGroup.packingCode]
-                            ? 'bg-gray-400 cursor-not-allowed focus:ring-gray-500'
-                            : 'bg-blue-600 hover:bg-blue-700 focus:ring-blue-500'
-                        }`}
-                      >
-                        {addingProduct[packingGroup.packingCode] ? (
-                          <>
-                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                            저장 중...
-                          </>
-                        ) : (
-                          <>
-                            <Plus className="w-4 h-4 mr-2" />
-                            {packingGroup.packingCode}에 상품 추가
-                          </>
-                        )}
-                      </button>
-                    </td>
-                  </tr>
                 </React.Fragment>
               ))
               )}
@@ -1506,6 +1963,238 @@ const MakePackingList = () => {
         </div>
       )}
 
+      {/* 일괄 삭제 모달 */}
+      {isBulkDeleteModalOpen && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full mx-4 max-h-[80vh] overflow-hidden">
+            {/* 모달 헤더 */}
+            <div className="px-6 py-4 border-b border-gray-200 bg-red-50">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-3">
+                  <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center">
+                    <Trash2 className="w-5 h-5 text-red-600" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-semibold text-gray-900">
+                      일괄 삭제 확인
+                    </h3>
+                    <p className="text-sm text-gray-600">
+                      선택된 {selectedProducts.size}개 제품을 삭제하시겠습니까?
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={closeBulkDeleteModal}
+                  className="text-gray-400 hover:text-gray-600 transition-colors"
+                >
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+            </div>
+
+            {/* 모달 내용 */}
+            <div className="px-6 py-4 max-h-96 overflow-y-auto">
+              <div className="space-y-4">
+                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                  <div className="flex items-center space-x-2">
+                    <div className="w-5 h-5 bg-yellow-400 rounded-full flex items-center justify-center">
+                      <span className="text-white text-xs font-bold">!</span>
+                    </div>
+                    <span className="text-yellow-800 font-medium">
+                      다음 {selectedProducts.size}개의 제품이 삭제됩니다:
+                    </span>
+                  </div>
+                </div>
+
+                <div className="space-y-2 max-h-48 overflow-y-auto">
+                  {Array.from(selectedProducts).map((productId) => {
+                    const product = packingData
+                      .flatMap(group => group.products)
+                      .find(p => p.id === productId);
+                    
+                    if (!product) return null;
+                    
+                    return (
+                      <div key={productId} className="bg-gray-50 rounded-lg p-3 border border-gray-200">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <span className="font-medium text-gray-900">{product.productName}</span>
+                            {product.sku && (
+                              <span className="ml-2 text-sm text-gray-600">(SKU: {product.sku})</span>
+                            )}
+                          </div>
+                          <div className="text-sm text-gray-500">
+                            {product.packagingMethod && product.packagingCount && product.boxCount
+                              ? `${product.packagingMethod} × ${product.packagingCount} × ${product.boxCount} = ${product.packagingMethod * product.packagingCount * product.boxCount}개`
+                              : '수량 미입력'
+                            }
+                          </div>
+                        </div>
+                        {product.projectId && (
+                          <div className="mt-1 text-xs text-blue-600">
+                            프로젝트 ID: {product.projectId}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                  <div className="flex items-center space-x-2">
+                    <div className="w-5 h-5 bg-red-400 rounded-full flex items-center justify-center">
+                      <span className="text-white text-xs font-bold">!</span>
+                    </div>
+                    <span className="text-red-800 font-medium">
+                      ⚠️ 이 작업은 되돌릴 수 없습니다. 삭제 후에는 복구할 수 없습니다.
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* 모달 푸터 */}
+            <div className="px-6 py-4 border-t border-gray-200 bg-gray-50 flex justify-end space-x-3">
+              <button
+                onClick={closeBulkDeleteModal}
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+              >
+                취소
+              </button>
+              <button
+                onClick={executeBulkDelete}
+                disabled={selectedProducts.size === 0}
+                className="px-4 py-2 text-sm font-medium text-white bg-red-600 border border-transparent rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                {selectedProducts.size}개 삭제 실행
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 개별 제품 삭제 미리보기 모달 */}
+      {isProductDeletePreviewOpen && productToDelete && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl max-w-lg w-full mx-4 max-h-[80vh] overflow-hidden">
+            {/* 모달 헤더 */}
+            <div className="px-6 py-4 border-b border-gray-200 bg-red-50">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-3">
+                  <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center">
+                    <Trash2 className="w-5 h-5 text-red-600" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-semibold text-gray-900">
+                      제품 삭제 확인
+                    </h3>
+                    <p className="text-sm text-gray-600">
+                      "{productToDelete.productName}" 제품을 삭제하시겠습니까?
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={closeProductDeletePreview}
+                  className="text-gray-400 hover:text-gray-600 transition-colors"
+                >
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+            </div>
+
+            {/* 모달 내용 */}
+            <div className="px-6 py-4">
+              <div className="space-y-4">
+                <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+                  <h4 className="font-medium text-gray-900 mb-3">삭제될 제품 정보</h4>
+                  <div className="space-y-2 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">제품명:</span>
+                      <span className="font-medium text-gray-900">{productToDelete.productName}</span>
+                    </div>
+                    {productToDelete.sku && (
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">SKU:</span>
+                        <span className="font-medium text-gray-900">{productToDelete.sku}</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">포장코드:</span>
+                      <span className="font-medium text-gray-900">{productToDelete.packingCode}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">출고수량:</span>
+                      <span className="font-medium text-gray-900">
+                        {productToDelete.packagingMethod && productToDelete.packagingCount && productToDelete.boxCount
+                          ? `${productToDelete.packagingMethod} × ${productToDelete.packagingCount} × ${productToDelete.boxCount} = ${productToDelete.packagingMethod * productToDelete.packagingCount * productToDelete.boxCount}개`
+                          : '수량 미입력'
+                        }
+                      </span>
+                    </div>
+                    {productToDelete.projectId && (
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">프로젝트 ID:</span>
+                        <span className="font-medium text-blue-600">{productToDelete.projectId}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                  <div className="flex items-center space-x-2">
+                    <div className="w-5 h-5 bg-yellow-400 rounded-full flex items-center justify-center">
+                      <span className="text-white text-xs font-bold">!</span>
+                    </div>
+                    <span className="text-yellow-800 font-medium">
+                      이 제품이 삭제되면 관련된 물류 결제 정보도 함께 삭제됩니다.
+                    </span>
+                  </div>
+                </div>
+
+                {productToDelete.projectId && (
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                    <div className="flex items-center space-x-2">
+                      <div className="w-5 h-5 bg-blue-400 rounded-full flex items-center justify-center">
+                        <span className="text-white text-xs font-bold">i</span>
+                      </div>
+                      <span className="text-blue-800 font-medium">
+                        프로젝트 상품이므로 삭제 후 해당 프로젝트의 출고 수량이 자동으로 재계산됩니다.
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                  <div className="flex items-center space-x-2">
+                    <div className="w-5 h-5 bg-red-400 rounded-full flex items-center justify-center">
+                      <span className="text-white text-xs font-bold">!</span>
+                    </div>
+                    <span className="text-red-800 font-medium">
+                      ⚠️ 이 작업은 되돌릴 수 없습니다. 삭제 후에는 복구할 수 없습니다.
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* 모달 푸터 */}
+            <div className="px-6 py-4 border-t border-gray-200 bg-gray-50 flex justify-end space-x-3">
+              <button
+                onClick={closeProductDeletePreview}
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+              >
+                취소
+              </button>
+              <button
+                onClick={executeProductDelete}
+                className="px-4 py-2 text-sm font-medium text-white bg-red-600 border border-transparent rounded-lg hover:bg-red-700 transition-colors"
+              >
+                삭제 실행
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );

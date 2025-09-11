@@ -9,6 +9,7 @@ import ProjectLists from '../../components/Project/MJ/ProjectLists';
 import ProjectDetails from '../../components/Project/MJ/ProjectDetails';
 import { MJCalendar } from '../../components/Calendar';
 import { MJPackingList, MakePackingList, PackingListDetail, PackingListDateDetail, LogisticPayment, PackingCodeDetailList } from '../../components/Logistic';
+import PackingListEdit from '../../components/Logistic/PackingListEdit';
 import { Finance } from '../../components/Finance';
 import MJProjectSummaryCards from '../../components/Dashboard/MJProjectSummaryCards';
 
@@ -39,6 +40,8 @@ const Dashboard = () => {
       setSelectedMenu('mj-packing-list-packing-codes');
     } else if (path.includes('/mj-packing-list/create')) {
       setSelectedMenu('mj-packing-list-create');
+    } else if (path.includes('/mj-packing-list/edit')) {
+      setSelectedMenu('mj-packing-list-edit');
     } else if (path.includes('/mj-packing-list/date/') || path.includes('/mj-packing-list/date-detail')) {
       setSelectedMenu('mj-packing-list-date-detail');
     } else if (path.includes('/mj-packing-list/logistic-payment')) {
@@ -72,6 +75,8 @@ const Dashboard = () => {
         return <MJPackingList />;
       case 'mj-packing-list-create':
         return <MakePackingList />;
+      case 'mj-packing-list-edit':
+        return <PackingListEdit />;
       case 'mj-packing-list-detail':
         return <PackingListDetail />;
       case 'mj-packing-list-date-detail':

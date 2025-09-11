@@ -100,3 +100,5 @@ Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 - 프로젝트 개수는 `mj_project` 테이블의 `created_at` 필드를 기준으로 계산됩니다.
 - 순번은 1부터 시작하며, 매일 자정에 초기화됩니다.
 - 생성된 상품명은 프로젝트 등록 시 사용할 수 있습니다.
+
+

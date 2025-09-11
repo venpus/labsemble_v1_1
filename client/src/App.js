@@ -46,6 +46,7 @@ function App() {
               <Route path="/dashboard/mj-calendar" element={<Dashboard />} />
               <Route path="/dashboard/mj-packing-list" element={<Dashboard />} />
               <Route path="/dashboard/mj-packing-list/create" element={<Dashboard />} />
+              <Route path="/dashboard/mj-packing-list/edit" element={<Dashboard />} />
               <Route path="/dashboard/mj-packing-list/:packingCode" element={<Dashboard />} />
               <Route path="/dashboard/mj-packing-list/date/:date" element={<Dashboard />} />
               <Route path="/dashboard/mj-packing-list/logistic-payment" element={<Dashboard />} />

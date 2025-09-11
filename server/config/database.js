@@ -1604,6 +1604,98 @@ const testConnection = async () => {
   }
 };
 
+// 소프트 삭제 필드 마이그레이션 함수
+async function migrateSoftDeleteFields() {
+  const connection = await pool.getConnection();
+  
+  try {
+    console.log('🔄 소프트 삭제 필드 마이그레이션 시작...');
+    
+    // is_deleted 필드 존재 여부 확인
+    const [isDeletedColumn] = await connection.execute(
+      "SHOW COLUMNS FROM mj_packing_list LIKE 'is_deleted'"
+    );
+
+    if (isDeletedColumn.length === 0) {
+      // is_deleted 필드 추가
+      await connection.execute(`
+        ALTER TABLE mj_packing_list 
+        ADD COLUMN is_deleted BOOLEAN DEFAULT FALSE,
+        ADD COLUMN deleted_at TIMESTAMP NULL,
+        ADD COLUMN deleted_by VARCHAR(255) NULL
+      `);
+      console.log('✅ is_deleted, deleted_at, deleted_by 필드가 추가되었습니다.');
+    } else {
+      console.log('ℹ️  is_deleted 필드가 이미 존재합니다.');
+    }
+
+    // 인덱스 추가
+    try {
+      await connection.execute(`
+        CREATE INDEX idx_mj_packing_list_is_deleted ON mj_packing_list(is_deleted)
+      `);
+      console.log('✅ is_deleted 인덱스가 추가되었습니다.');
+    } catch (indexError) {
+      if (indexError.code === 'ER_DUP_KEYNAME') {
+        console.log('ℹ️  is_deleted 인덱스가 이미 존재합니다.');
+      } else {
+        throw indexError;
+      }
+    }
+
+    try {
+      await connection.execute(`
+        CREATE INDEX idx_mj_packing_list_deleted_at ON mj_packing_list(deleted_at)
+      `);
+      console.log('✅ deleted_at 인덱스가 추가되었습니다.');
+    } catch (indexError) {
+      if (indexError.code === 'ER_DUP_KEYNAME') {
+        console.log('ℹ️  deleted_at 인덱스가 이미 존재합니다.');
+      } else {
+        throw indexError;
+      }
+    }
+
+    console.log('✅ 소프트 삭제 필드 마이그레이션 완료!');
+    
+  } catch (error) {
+    console.error('❌ 소프트 삭제 필드 마이그레이션 오류:', error);
+    throw error;
+  } finally {
+    connection.release();
+  }
+}
+
+// 모든 마이그레이션 실행 함수
+async function runAllMigrations() {
+  console.log('🚀 모든 마이그레이션 실행 시작...');
+  
+  try {
+    // 기존 마이그레이션들
+    await migrateFactoryShippingStatus();
+    await migrateWarehouseTables();
+    await migratePaymentColumns();
+    await migrateWarehouseStockFields();
+    await migrateMJProjectQuantityFields();
+    await migrateMJProjectPaymentsTable();
+    await migrateMJPackingListTable();
+    await migrateFinanceIncomingTable();
+    await migrateFinanceExpenseTable();
+    await migrateLogisticPaymentTable();
+    await migratePaymentRequestTables();
+    await migrateAppVersionsTable();
+    
+    // 새로운 소프트 삭제 마이그레이션
+    await migrateSoftDeleteFields();
+    
+    console.log('✅ 모든 마이그레이션이 성공적으로 완료되었습니다!');
+    
+  } catch (error) {
+    console.error('❌ 마이그레이션 실행 중 오류 발생:', error);
+    throw error;
+  }
+}
+
 
 module.exports = {
   pool,
@@ -1620,5 +1712,7 @@ module.exports = {
   migrateFinanceExpenseTable,
   migrateLogisticPaymentTable,
   migratePaymentRequestTables,
-  migrateAppVersionsTable
+  migrateAppVersionsTable,
+  migrateSoftDeleteFields,
+  runAllMigrations
 }; 

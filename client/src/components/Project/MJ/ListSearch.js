@@ -116,7 +116,7 @@ const ListSearch = ({
               value={filterOrderStatus}
               onChange={(e) => {
                 setFilterOrderStatus(e.target.value);
-                // 필터 변경 시 즉시 검색 실행
+                // 필터 변경 시 즉시 검색 실행 (자동 검색)
                 if (onSearch) {
                   onSearch();
                 }
@@ -141,7 +141,7 @@ const ListSearch = ({
               value={filterShippingStatus}
               onChange={(e) => {
                 setFilterShippingStatus(e.target.value);
-                // 필터 변경 시 즉시 검색 실행
+                // 필터 변경 시 즉시 검색 실행 (자동 검색)
                 if (onSearch) {
                   onSearch();
                 }
@@ -166,7 +166,7 @@ const ListSearch = ({
               value={filterWarehouseStatus}
               onChange={(e) => {
                 setFilterWarehouseStatus(e.target.value);
-                // 필터 변경 시 즉시 검색 실행
+                // 필터 변경 시 즉시 검색 실행 (자동 검색)
                 if (onSearch) {
                   onSearch();
                 }

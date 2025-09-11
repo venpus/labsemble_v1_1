@@ -1035,28 +1035,39 @@ const WarehouseEntry = ({ project, isAdmin, isAdminLoading, onDeliveryStatusChan
               <span className="text-sm text-green-700">개</span>
             </div>
             
-            {/* 남은 입고 수량 */}
+            {/* 남은 입고 수량 / 초과 입고 수량 */}
             <div className={`flex items-center space-x-2 px-3 py-2 rounded-lg border ${
               remainingQuantity === 0 
                 ? 'bg-green-50 border-green-200' 
-                : 'bg-orange-50 border-orange-200'
+                : remainingQuantity < 0
+                  ? 'bg-red-50 border-red-200'
+                  : 'bg-orange-50 border-orange-200'
             }`}>
               <Package className={`w-4 h-4 ${
-                remainingQuantity === 0 ? 'text-green-600' : 'text-orange-600'
+                remainingQuantity === 0 ? 'text-green-600' : 
+                remainingQuantity < 0 ? 'text-red-600' : 'text-orange-600'
               }`} />
               <span className={`text-sm font-medium ${
-                remainingQuantity === 0 ? 'text-green-900' : 'text-orange-900'
+                remainingQuantity === 0 ? 'text-green-900' : 
+                remainingQuantity < 0 ? 'text-red-900' : 'text-orange-900'
               }`}>
-                남은 수량:
+                {remainingQuantity < 0 ? '초과 입고 수량:' : '남은 수량:'}
               </span>
               <span className={`text-lg font-bold ${
-                remainingQuantity === 0 ? 'text-green-900' : 'text-orange-900'
+                remainingQuantity === 0 ? 'text-green-900' : 
+                remainingQuantity < 0 ? 'text-red-900' : 'text-orange-900'
               }`}>
-                {remainingQuantity.toLocaleString()}
+                {remainingQuantity < 0 ? `+${Math.abs(remainingQuantity).toLocaleString()}` : remainingQuantity.toLocaleString()}
               </span>
               <span className={`text-sm ${
-                remainingQuantity === 0 ? 'text-green-700' : 'text-orange-700'
+                remainingQuantity === 0 ? 'text-green-700' : 
+                remainingQuantity < 0 ? 'text-red-700' : 'text-orange-700'
               }`}>개</span>
+              {remainingQuantity < 0 && (
+                <span className="ml-2 text-xs bg-red-100 text-red-800 px-2 py-1 rounded-full border border-red-200">
+                  ⚠️ 초과!
+                </span>
+              )}
               {remainingQuantity === 0 && (
                 <span className="ml-2 text-xs bg-green-100 text-green-800 px-2 py-1 rounded-full border border-green-200">
                   🎉 완료!

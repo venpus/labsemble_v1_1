@@ -908,4 +908,336 @@ router.get('/products-with-stock', authMiddleware, async (req, res) => {
   }
 });
 
+// 프로젝트별 재고 상태 조회 (편집 페이지용)
+router.get('/inventory-status/:projectId', authMiddleware, async (req, res) => {
+  const connection = await pool.getConnection();
+  
+  try {
+    const { projectId } = req.params;
+    
+    // 프로젝트 정보 조회
+    const [project] = await connection.execute(`
+      SELECT id, project_name, entry_quantity, export_quantity, remain_quantity
+      FROM mj_project 
+      WHERE id = ?
+    `, [projectId]);
+    
+    if (project.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: '프로젝트를 찾을 수 없습니다.'
+      });
+    }
+    
+    // 해당 프로젝트의 재고 상태 조회
+    const [inventory] = await connection.execute(`
+      SELECT 
+        SUM(stock) as total_available_stock,
+        SUM(out_quantity) as total_out_quantity,
+        SUM(quantity) as total_entry_quantity,
+        COUNT(*) as entry_count
+      FROM warehouse_entries 
+      WHERE project_id = ? AND status = '입고완료'
+    `, [projectId]);
+    
+    const projectData = project[0];
+    const inventoryData = inventory[0];
+    
+    res.json({
+      success: true,
+      data: {
+        project_id: projectData.id,
+        project_name: projectData.project_name,
+        entry_quantity: projectData.entry_quantity,
+        export_quantity: projectData.export_quantity,
+        remain_quantity: projectData.remain_quantity,
+        available_stock: inventoryData.total_available_stock || 0,
+        out_quantity: inventoryData.total_out_quantity || 0,
+        total_entry_quantity: inventoryData.total_entry_quantity || 0,
+        entry_count: inventoryData.entry_count || 0
+      }
+    });
+    
+  } catch (error) {
+    console.error('❌ 재고 상태 조회 오류:', error);
+    res.status(500).json({
+      success: false,
+      error: '재고 상태 조회 중 오류가 발생했습니다.',
+      details: error.message
+    });
+  } finally {
+    connection.release();
+  }
+});
+
+// 재고 차감 처리 (패킹리스트 편집용)
+router.post('/deduct-inventory', authMiddleware, async (req, res) => {
+  const connection = await pool.getConnection();
+  
+  try {
+    const { projectId, quantity, packingCode, packingListId } = req.body;
+    
+    if (!projectId || !quantity || quantity <= 0) {
+      return res.status(400).json({
+        success: false,
+        error: '프로젝트 ID와 수량은 필수입니다.'
+      });
+    }
+    
+    console.log('📦 [deduct-inventory] 재고 차감 시작:', {
+      projectId,
+      quantity,
+      packingCode,
+      packingListId,
+      timestamp: new Date().toISOString()
+    });
+    
+    await connection.beginTransaction();
+    
+    // 프로젝트 재고 상태 확인
+    const [project] = await connection.execute(`
+      SELECT id, project_name, entry_quantity, export_quantity, remain_quantity
+      FROM mj_project 
+      WHERE id = ?
+    `, [projectId]);
+    
+    if (project.length === 0) {
+      await connection.rollback();
+      return res.status(404).json({
+        success: false,
+        error: '프로젝트를 찾을 수 없습니다.'
+      });
+    }
+    
+    const projectData = project[0];
+    const currentRemainQuantity = projectData.remain_quantity || 0;
+    
+    // 재고 부족 확인
+    if (quantity > currentRemainQuantity) {
+      await connection.rollback();
+      return res.status(400).json({
+        success: false,
+        error: `재고 부족: 요청 수량 ${quantity}개, 사용 가능 재고 ${currentRemainQuantity}개`
+      });
+    }
+    
+    // warehouse_entries에서 재고 차감 (FIFO 방식)
+    const [entries] = await connection.execute(`
+      SELECT id, stock, out_quantity, quantity
+      FROM warehouse_entries 
+      WHERE project_id = ? AND stock > 0 AND status = '입고완료'
+      ORDER BY entry_date ASC, id ASC
+    `, [projectId]);
+    
+    let remainingQuantity = quantity;
+    const updatedEntries = [];
+    
+    for (const entry of entries) {
+      if (remainingQuantity <= 0) break;
+      
+      const availableStock = entry.stock;
+      const deductAmount = Math.min(remainingQuantity, availableStock);
+      
+      if (deductAmount > 0) {
+        // 재고 차감
+        await connection.execute(`
+          UPDATE warehouse_entries 
+          SET stock = stock - ?, out_quantity = out_quantity + ?, updated_at = NOW()
+          WHERE id = ?
+        `, [deductAmount, deductAmount, entry.id]);
+        
+        updatedEntries.push({
+          entry_id: entry.id,
+          deducted_amount: deductAmount,
+          remaining_stock: availableStock - deductAmount
+        });
+        
+        remainingQuantity -= deductAmount;
+      }
+    }
+    
+    if (remainingQuantity > 0) {
+      await connection.rollback();
+      return res.status(400).json({
+        success: false,
+        error: `재고 부족: ${remainingQuantity}개를 차감할 수 없습니다.`
+      });
+    }
+    
+    // mj_project의 export_quantity 업데이트
+    const newExportQuantity = (projectData.export_quantity || 0) + quantity;
+    const newRemainQuantity = projectData.entry_quantity - newExportQuantity;
+    
+    await connection.execute(`
+      UPDATE mj_project 
+      SET export_quantity = ?, remain_quantity = ?, updated_at = NOW()
+      WHERE id = ?
+    `, [newExportQuantity, newRemainQuantity, projectId]);
+    
+    await connection.commit();
+    
+    console.log('✅ [deduct-inventory] 재고 차감 완료:', {
+      projectId,
+      quantity,
+      newExportQuantity,
+      newRemainQuantity,
+      updatedEntries: updatedEntries.length
+    });
+    
+    res.json({
+      success: true,
+      message: '재고가 성공적으로 차감되었습니다.',
+      data: {
+        project_id: projectId,
+        deducted_quantity: quantity,
+        new_export_quantity: newExportQuantity,
+        new_remain_quantity: newRemainQuantity,
+        updated_entries: updatedEntries
+      }
+    });
+    
+  } catch (error) {
+    await connection.rollback();
+    console.error('❌ [deduct-inventory] 재고 차감 오류:', error);
+    res.status(500).json({
+      success: false,
+      error: '재고 차감 중 오류가 발생했습니다.',
+      details: error.message
+    });
+  } finally {
+    connection.release();
+  }
+});
+
+// 재고 복구 처리 (패킹리스트 삭제/수정 시)
+router.post('/restore-inventory', authMiddleware, async (req, res) => {
+  const connection = await pool.getConnection();
+  
+  try {
+    const { projectId, quantity, packingCode, packingListId } = req.body;
+    
+    if (!projectId || !quantity || quantity <= 0) {
+      return res.status(400).json({
+        success: false,
+        error: '프로젝트 ID와 수량은 필수입니다.'
+      });
+    }
+    
+    console.log('🔄 [restore-inventory] 재고 복구 시작:', {
+      projectId,
+      quantity,
+      packingCode,
+      packingListId,
+      timestamp: new Date().toISOString()
+    });
+    
+    await connection.beginTransaction();
+    
+    // 프로젝트 정보 확인
+    const [project] = await connection.execute(`
+      SELECT id, project_name, entry_quantity, export_quantity, remain_quantity
+      FROM mj_project 
+      WHERE id = ?
+    `, [projectId]);
+    
+    if (project.length === 0) {
+      await connection.rollback();
+      return res.status(404).json({
+        success: false,
+        error: '프로젝트를 찾을 수 없습니다.'
+      });
+    }
+    
+    const projectData = project[0];
+    const currentExportQuantity = projectData.export_quantity || 0;
+    
+    // export_quantity가 복구할 수량보다 작은지 확인
+    if (quantity > currentExportQuantity) {
+      await connection.rollback();
+      return res.status(400).json({
+        success: false,
+        error: `복구 불가: 복구 요청 수량 ${quantity}개, 현재 출고 수량 ${currentExportQuantity}개`
+      });
+    }
+    
+    // warehouse_entries에서 재고 복구 (LIFO 방식)
+    const [entries] = await connection.execute(`
+      SELECT id, stock, out_quantity, quantity
+      FROM warehouse_entries 
+      WHERE project_id = ? AND out_quantity > 0 AND status = '입고완료'
+      ORDER BY entry_date DESC, id DESC
+    `, [projectId]);
+    
+    let remainingQuantity = quantity;
+    const updatedEntries = [];
+    
+    for (const entry of entries) {
+      if (remainingQuantity <= 0) break;
+      
+      const availableOutQuantity = entry.out_quantity;
+      const restoreAmount = Math.min(remainingQuantity, availableOutQuantity);
+      
+      if (restoreAmount > 0) {
+        // 재고 복구
+        await connection.execute(`
+          UPDATE warehouse_entries 
+          SET stock = stock + ?, out_quantity = out_quantity - ?, updated_at = NOW()
+          WHERE id = ?
+        `, [restoreAmount, restoreAmount, entry.id]);
+        
+        updatedEntries.push({
+          entry_id: entry.id,
+          restored_amount: restoreAmount,
+          new_stock: entry.stock + restoreAmount
+        });
+        
+        remainingQuantity -= restoreAmount;
+      }
+    }
+    
+    // mj_project의 export_quantity 업데이트
+    const newExportQuantity = currentExportQuantity - quantity;
+    const newRemainQuantity = projectData.entry_quantity - newExportQuantity;
+    
+    await connection.execute(`
+      UPDATE mj_project 
+      SET export_quantity = ?, remain_quantity = ?, updated_at = NOW()
+      WHERE id = ?
+    `, [newExportQuantity, newRemainQuantity, projectId]);
+    
+    await connection.commit();
+    
+    console.log('✅ [restore-inventory] 재고 복구 완료:', {
+      projectId,
+      quantity,
+      newExportQuantity,
+      newRemainQuantity,
+      updatedEntries: updatedEntries.length
+    });
+    
+    res.json({
+      success: true,
+      message: '재고가 성공적으로 복구되었습니다.',
+      data: {
+        project_id: projectId,
+        restored_quantity: quantity,
+        new_export_quantity: newExportQuantity,
+        new_remain_quantity: newRemainQuantity,
+        updated_entries: updatedEntries
+      }
+    });
+    
+  } catch (error) {
+    await connection.rollback();
+    console.error('❌ [restore-inventory] 재고 복구 오류:', error);
+    res.status(500).json({
+      success: false,
+      error: '재고 복구 중 오류가 발생했습니다.',
+      details: error.message
+    });
+  } finally {
+    connection.release();
+  }
+});
+
 module.exports = router; 
