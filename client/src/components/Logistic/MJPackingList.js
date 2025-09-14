@@ -589,10 +589,10 @@ const MJPackingList = () => {
                   배송비 결제여부
                 </th>
                 <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-24">
-                  물류비 상세
+                  물류비 / 입고 확인
                 </th>
                 <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-20">
-                  상품 개수
+                  상품 개수 보기
                 </th>
                 <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-20">
                   상세보기

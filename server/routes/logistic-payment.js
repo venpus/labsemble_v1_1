@@ -38,6 +38,9 @@ router.put('/update', auth, async (req, res) => {
           tracking_number,
           logistic_fee,
           is_paid,
+          is_arrived,
+          arrived_date,
+          arrived_by,
           description
         } = item;
         
@@ -79,6 +82,9 @@ router.put('/update', auth, async (req, res) => {
                 tracking_number = ?,
                 logistic_fee = ?,
                 is_paid = ?,
+                is_arrived = ?,
+                arrived_date = ?,
+                arrived_by = ?,
                 description = ?,
                 updated_at = CURRENT_TIMESTAMP
               WHERE packing_code = ? AND mj_packing_list_id = ? AND box_no = ?
@@ -88,6 +94,9 @@ router.put('/update', auth, async (req, res) => {
               tracking_number || null,
               logistic_fee || 205, // 기본값 205로 설정
               is_paid || false,
+              is_arrived || false,
+              arrived_date || null,
+              arrived_by || null,
               description || null,
               packing_code,
               mj_packing_list_id,
@@ -108,8 +117,11 @@ router.put('/update', auth, async (req, res) => {
                 tracking_number,
                 logistic_fee,
                 is_paid,
+                is_arrived,
+                arrived_date,
+                arrived_by,
                 description
-              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             `, [
               mj_packing_list_id,
               pl_date,
@@ -120,6 +132,9 @@ router.put('/update', auth, async (req, res) => {
               tracking_number || null,
               logistic_fee || 205, // 기본값 205로 설정
               is_paid || false,
+              is_arrived || false,
+              arrived_date || null,
+              arrived_by || null,
               description || null
             ]);
             savedCount++;
@@ -510,6 +525,391 @@ router.get('/shipping-payment-details', auth, async (req, res) => {
       success: false,
       message: '배송비 지급 예정 상세 정보 조회 중 오류가 발생했습니다.',
       error: error.message
+    });
+  } finally {
+    connection.release();
+  }
+});
+
+// 바코드 스캔을 통한 입고 확인 API
+router.post('/scan-barcode', auth, async (req, res) => {
+  const connection = await pool.getConnection();
+  
+  try {
+    const { barcode_number, arrived_by } = req.body;
+    const userId = req.user.id;
+    
+    console.log('📱 [barcode-scan] 바코드 스캔 요청:', {
+      barcode_number, arrived_by, userId
+    });
+    
+    // 필수 필드 검증
+    if (!barcode_number || barcode_number.trim() === '') {
+      return res.status(400).json({
+        success: false,
+        error: '바코드 번호를 입력해주세요.'
+      });
+    }
+    
+    // 바코드 번호로 해당 레코드 찾기
+    const [records] = await connection.execute(`
+      SELECT 
+        lp.id,
+        lp.packing_code,
+        lp.box_no,
+        lp.barcode_number,
+        lp.tracking_number,
+        lp.logistic_company,
+        lp.is_arrived,
+        lp.arrived_date,
+        lp.arrived_by,
+        mpl.product_name
+      FROM logistic_payment lp
+      LEFT JOIN mj_packing_list mpl ON lp.mj_packing_list_id = mpl.id
+      WHERE lp.barcode_number = ?
+    `, [barcode_number.trim()]);
+    
+    if (records.length === 0) {
+      console.log('❌ [barcode-scan] 바코드 일치하는 레코드 없음:', barcode_number);
+      return res.status(404).json({
+        success: false,
+        error: '해당 바코드 번호와 일치하는 물류 정보를 찾을 수 없습니다.',
+        barcode_number: barcode_number
+      });
+    }
+    
+    const record = records[0];
+    
+    // 이미 입고 확인된 경우
+    if (record.is_arrived) {
+      console.log('⚠️ [barcode-scan] 이미 입고 확인된 바코드:', barcode_number);
+      return res.status(409).json({
+        success: false,
+        error: '이미 입고 확인된 바코드입니다.',
+        data: {
+          packing_code: record.packing_code,
+          box_no: record.box_no,
+          arrived_date: record.arrived_date,
+          arrived_by: record.arrived_by
+        }
+      });
+    }
+    
+    // 입고 확인 처리
+    const currentDate = new Date().toISOString().split('T')[0]; // YYYY-MM-DD 형식
+    const arrivedBy = arrived_by || req.user.username || '바코드스캔';
+    
+    await connection.execute(`
+      UPDATE logistic_payment 
+      SET 
+        is_arrived = true,
+        arrived_date = ?,
+        arrived_by = ?,
+        updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `, [currentDate, arrivedBy, record.id]);
+    
+    console.log('✅ [barcode-scan] 입고 확인 완료:', {
+      barcode_number,
+      packing_code: record.packing_code,
+      box_no: record.box_no,
+      arrived_date: currentDate,
+      arrived_by: arrivedBy
+    });
+    
+    res.json({
+      success: true,
+      message: '입고 확인이 완료되었습니다.',
+      data: {
+        id: record.id,
+        packing_code: record.packing_code,
+        box_no: record.box_no,
+        barcode_number: record.barcode_number,
+        tracking_number: record.tracking_number,
+        logistic_company: record.logistic_company,
+        product_name: record.product_name,
+        is_arrived: true,
+        arrived_date: currentDate,
+        arrived_by: arrivedBy
+      }
+    });
+    
+  } catch (error) {
+    console.error('❌ [barcode-scan] 바코드 스캔 오류:', error);
+    res.status(500).json({
+      success: false,
+      error: '바코드 스캔 처리 중 오류가 발생했습니다.'
+    });
+  } finally {
+    connection.release();
+  }
+});
+
+// 바코드 유효성 검증 API (일치 여부만 확인)
+router.post('/validate-barcode', auth, async (req, res) => {
+  const connection = await pool.getConnection();
+  
+  try {
+    const { barcode_number } = req.body;
+    
+    console.log('🔍 [barcode-validate] 바코드 유효성 검증 요청:', {
+      barcode_number
+    });
+    
+    // 필수 필드 검증
+    if (!barcode_number || barcode_number.trim() === '') {
+      return res.status(400).json({
+        success: false,
+        error: '바코드 번호를 입력해주세요.'
+      });
+    }
+    
+    // 바코드 번호로 해당 레코드 찾기
+    const [records] = await connection.execute(`
+      SELECT 
+        lp.id,
+        lp.packing_code,
+        lp.box_no,
+        lp.barcode_number,
+        lp.tracking_number,
+        lp.logistic_company,
+        lp.is_arrived,
+        lp.arrived_date,
+        lp.arrived_by,
+        mpl.product_name
+      FROM logistic_payment lp
+      LEFT JOIN mj_packing_list mpl ON lp.mj_packing_list_id = mpl.id
+      WHERE lp.barcode_number = ?
+    `, [barcode_number.trim()]);
+    
+    if (records.length === 0) {
+      console.log('❌ [barcode-validate] 바코드 일치하는 레코드 없음:', barcode_number);
+      return res.status(404).json({
+        success: false,
+        error: '해당 바코드 번호와 일치하는 물류 정보를 찾을 수 없습니다.',
+        barcode_number: barcode_number
+      });
+    }
+    
+    const record = records[0];
+    
+    console.log('✅ [barcode-validate] 바코드 일치 확인:', {
+      barcode_number,
+      packing_code: record.packing_code,
+      box_no: record.box_no,
+      is_arrived: record.is_arrived
+    });
+    
+    res.json({
+      success: true,
+      message: '바코드가 일치합니다.',
+      data: {
+        id: record.id,
+        packing_code: record.packing_code,
+        box_no: record.box_no,
+        barcode_number: record.barcode_number,
+        tracking_number: record.tracking_number,
+        logistic_company: record.logistic_company,
+        product_name: record.product_name,
+        is_arrived: record.is_arrived,
+        arrived_date: record.arrived_date,
+        arrived_by: record.arrived_by
+      }
+    });
+    
+  } catch (error) {
+    console.error('❌ [barcode-validate] 바코드 유효성 검증 오류:', error);
+    res.status(500).json({
+      success: false,
+      error: '바코드 유효성 검증 중 오류가 발생했습니다.'
+    });
+  } finally {
+    connection.release();
+  }
+});
+
+// 바코드로 입고 확인 업데이트 API (바코드가 일치할 때만)
+router.post('/update-arrival-by-barcode', auth, async (req, res) => {
+  const connection = await pool.getConnection();
+  
+  try {
+    const { barcode_number, arrived_by } = req.body;
+    const userId = req.user.id;
+    
+    console.log('📦 [barcode-arrival-update] 바코드로 입고 확인 업데이트 요청:', {
+      barcode_number, arrived_by, userId
+    });
+    
+    // 필수 필드 검증
+    if (!barcode_number || barcode_number.trim() === '') {
+      return res.status(400).json({
+        success: false,
+        error: '바코드 번호를 입력해주세요.'
+      });
+    }
+    
+    // 바코드 번호로 해당 레코드 찾기
+    const [records] = await connection.execute(`
+      SELECT 
+        lp.id,
+        lp.packing_code,
+        lp.box_no,
+        lp.barcode_number,
+        lp.is_arrived
+      FROM logistic_payment lp
+      WHERE lp.barcode_number = ?
+    `, [barcode_number.trim()]);
+    
+    if (records.length === 0) {
+      console.log('❌ [barcode-arrival-update] 바코드 일치하는 레코드 없음:', barcode_number);
+      return res.status(404).json({
+        success: false,
+        error: '해당 바코드 번호와 일치하는 물류 정보를 찾을 수 없습니다.',
+        barcode_number: barcode_number
+      });
+    }
+    
+    const record = records[0];
+    
+    // 이미 입고 확인된 경우
+    if (record.is_arrived) {
+      console.log('⚠️ [barcode-arrival-update] 이미 입고 확인된 바코드:', barcode_number);
+      return res.status(409).json({
+        success: false,
+        error: '이미 입고 확인된 바코드입니다.',
+        data: {
+          packing_code: record.packing_code,
+          box_no: record.box_no
+        }
+      });
+    }
+    
+    // 입고 확인 처리
+    const currentDate = new Date().toISOString().split('T')[0]; // YYYY-MM-DD 형식
+    const arrivedBy = arrived_by || req.user.username || '바코드스캔';
+    
+    await connection.execute(`
+      UPDATE logistic_payment 
+      SET 
+        is_arrived = true,
+        arrived_date = ?,
+        arrived_by = ?,
+        updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `, [currentDate, arrivedBy, record.id]);
+    
+    console.log('✅ [barcode-arrival-update] 입고 확인 업데이트 완료:', {
+      barcode_number,
+      packing_code: record.packing_code,
+      box_no: record.box_no,
+      arrived_date: currentDate,
+      arrived_by: arrivedBy
+    });
+    
+    res.json({
+      success: true,
+      message: '입고 확인이 성공적으로 업데이트되었습니다.',
+      data: {
+        id: record.id,
+        packing_code: record.packing_code,
+        box_no: record.box_no,
+        barcode_number: record.barcode_number,
+        is_arrived: true,
+        arrived_date: currentDate,
+        arrived_by: arrivedBy
+      }
+    });
+    
+  } catch (error) {
+    console.error('❌ [barcode-arrival-update] 바코드 입고 확인 업데이트 오류:', error);
+    res.status(500).json({
+      success: false,
+      error: '입고 확인 업데이트 중 오류가 발생했습니다.'
+    });
+  } finally {
+    connection.release();
+  }
+});
+
+// 개별 항목 입고 확인 업데이트 API (체크박스용)
+router.put('/:id/arrival', auth, async (req, res) => {
+  const connection = await pool.getConnection();
+  
+  try {
+    const { id } = req.params;
+    const { is_arrived, arrived_date, arrived_by } = req.body;
+    const userId = req.user.id;
+    
+    console.log('📦 [individual-arrival] 개별 입고 확인 업데이트 요청:', {
+      id, is_arrived, arrived_date, arrived_by, userId
+    });
+    
+    // ID 유효성 검사
+    if (!id || isNaN(parseInt(id))) {
+      console.error('❌ [individual-arrival] 잘못된 ID:', id);
+      return res.status(400).json({
+        success: false,
+        error: '잘못된 ID 형식입니다.'
+      });
+    }
+    
+    // 레코드 존재 여부 확인
+    const [existingRecords] = await connection.execute(
+      'SELECT id, packing_code, box_no, is_arrived FROM logistic_payment WHERE id = ?',
+      [id]
+    );
+    
+    if (existingRecords.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: '해당 물류 결제 정보를 찾을 수 없습니다.'
+      });
+    }
+    
+    const record = existingRecords[0];
+    
+    // 입고 확인 처리
+    const currentDate = new Date().toISOString().split('T')[0]; // YYYY-MM-DD 형식
+    const finalArrivedDate = is_arrived ? (arrived_date || currentDate) : null;
+    const finalArrivedBy = is_arrived ? (arrived_by || req.user.username || '체크박스입력') : null;
+    
+    await connection.execute(`
+      UPDATE logistic_payment 
+      SET 
+        is_arrived = ?,
+        arrived_date = ?,
+        arrived_by = ?,
+        updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `, [is_arrived, finalArrivedDate, finalArrivedBy, id]);
+    
+    console.log('✅ [individual-arrival] 개별 입고 확인 업데이트 완료:', {
+      id,
+      packing_code: record.packing_code,
+      box_no: record.box_no,
+      is_arrived,
+      arrived_date: finalArrivedDate,
+      arrived_by: finalArrivedBy
+    });
+    
+    res.json({
+      success: true,
+      message: '입고 확인 상태가 성공적으로 업데이트되었습니다.',
+      data: {
+        id: parseInt(id),
+        packing_code: record.packing_code,
+        box_no: record.box_no,
+        is_arrived,
+        arrived_date: finalArrivedDate,
+        arrived_by: finalArrivedBy
+      }
+    });
+    
+  } catch (error) {
+    console.error('❌ [individual-arrival] 개별 입고 확인 업데이트 오류:', error);
+    res.status(500).json({
+      success: false,
+      error: '입고 확인 상태 업데이트 중 오류가 발생했습니다.'
     });
   } finally {
     connection.release();

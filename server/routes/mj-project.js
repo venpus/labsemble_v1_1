@@ -2683,7 +2683,75 @@ router.post('/mobile/register', authMiddleware, handleMulterError, async (req, r
   }
 });
 
-// 모바일 전용 자동 상품명 생성 API
+// 웹용 자동 상품명 생성 API
+router.get('/generate-product-name', authMiddleware, async (req, res) => {
+  const connection = await pool.getConnection();
+  
+  try {
+    console.log('🌐 [web-generate-name] 웹용 자동 상품명 생성 요청:', {
+      user: req.user
+    });
+    
+    // 현재 한국 시간으로 오늘 날짜 계산
+    const now = new Date();
+    const kstOffset = 9 * 60; // UTC+9 (한국 시간)
+    const kstTime = new Date(now.getTime() + (kstOffset * 60 * 1000));
+    
+    // YYMMDD 형식으로 날짜 생성
+    const year = kstTime.getFullYear().toString().slice(-2); // YY
+    const month = (kstTime.getMonth() + 1).toString().padStart(2, '0'); // MM
+    const day = kstTime.getDate().toString().padStart(2, '0'); // DD
+    const dateString = `${year}${month}${day}`;
+    
+    console.log('📅 [web-generate-name] 오늘 날짜:', dateString);
+    
+    // 오늘 날짜에 등록된 프로젝트 개수 조회
+    const [countResult] = await connection.execute(
+      `SELECT COUNT(*) as count 
+       FROM mj_project 
+       WHERE DATE(created_at) = CURDATE()`,
+      []
+    );
+    
+    const todayCount = parseInt(countResult[0].count) || 0;
+    const nextNumber = todayCount + 1;
+    
+    // YYMMDD#N 형식으로 상품명 생성 (숫자를 명시적으로 숫자로 처리)
+    const generatedProductName = `${dateString}#${nextNumber}`;
+    
+    console.log('✅ [web-generate-name] 상품명 생성 완료:', {
+      dateString,
+      todayCount,
+      nextNumber,
+      nextNumberType: typeof nextNumber,
+      generatedProductName
+    });
+    
+    res.json({
+      success: true,
+      data: {
+        productName: generatedProductName,
+        dateString: dateString,
+        todayCount: todayCount,
+        nextNumber: nextNumber
+      }
+    });
+    
+  } catch (error) {
+    console.error('❌ [web-generate-name] 상품명 생성 오류:', {
+      message: error.message,
+      stack: error.stack
+    });
+    res.status(500).json({ 
+      error: '상품명 생성 중 오류가 발생했습니다.',
+      details: process.env.NODE_ENV === 'development' ? error.message : '내부 서버 오류'
+    });
+  } finally {
+    connection.release();
+  }
+});
+
+// 모바일 전용 자동 상품명 생성 API (기존 API 유지)
 router.get('/mobile/generate-product-name', authMiddleware, async (req, res) => {
   const connection = await pool.getConnection();
   

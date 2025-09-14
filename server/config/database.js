@@ -1666,6 +1666,117 @@ async function migrateSoftDeleteFields() {
   }
 }
 
+// logistic_payment 도착 필드 마이그레이션 함수
+async function migrateLogisticPaymentArrivalFields() {
+  const connection = await pool.getConnection();
+  
+  try {
+    console.log('🔄 logistic_payment 도착 필드 마이그레이션 시작...');
+    
+    // is_arrived 필드 존재 여부 확인
+    const [isArrivedColumn] = await connection.execute(
+      "SHOW COLUMNS FROM logistic_payment LIKE 'is_arrived'"
+    );
+
+    if (isArrivedColumn.length === 0) {
+      // is_arrived 필드가 없으면 추가
+      await connection.execute(`
+        ALTER TABLE logistic_payment 
+        ADD COLUMN is_arrived BOOLEAN DEFAULT FALSE 
+        COMMENT '한국도착 여부'
+      `);
+      console.log('✅ logistic_payment.is_arrived 필드가 추가되었습니다.');
+    } else {
+      console.log('ℹ️  logistic_payment.is_arrived 필드가 이미 존재합니다.');
+    }
+
+    // arrived_date 필드 존재 여부 확인
+    const [arrivedDateColumn] = await connection.execute(
+      "SHOW COLUMNS FROM logistic_payment LIKE 'arrived_date'"
+    );
+
+    if (arrivedDateColumn.length === 0) {
+      // arrived_date 필드가 없으면 추가
+      await connection.execute(`
+        ALTER TABLE logistic_payment 
+        ADD COLUMN arrived_date DATE DEFAULT NULL 
+        COMMENT '한국도착 날짜'
+      `);
+      console.log('✅ logistic_payment.arrived_date 필드가 추가되었습니다.');
+    } else {
+      console.log('ℹ️  logistic_payment.arrived_date 필드가 이미 존재합니다.');
+    }
+
+    // arrived_by 필드 존재 여부 확인
+    const [arrivedByColumn] = await connection.execute(
+      "SHOW COLUMNS FROM logistic_payment LIKE 'arrived_by'"
+    );
+
+    if (arrivedByColumn.length === 0) {
+      // arrived_by 필드가 없으면 추가
+      await connection.execute(`
+        ALTER TABLE logistic_payment 
+        ADD COLUMN arrived_by VARCHAR(100) DEFAULT NULL 
+        COMMENT '도착담당자'
+      `);
+      console.log('✅ logistic_payment.arrived_by 필드가 추가되었습니다.');
+    } else {
+      console.log('ℹ️  logistic_payment.arrived_by 필드가 이미 존재합니다.');
+    }
+
+    // 인덱스 추가 (성능 최적화)
+    try {
+      await connection.execute(`
+        CREATE INDEX IF NOT EXISTS idx_logistic_payment_is_arrived 
+        ON logistic_payment(is_arrived)
+      `);
+      console.log('✅ logistic_payment.is_arrived 인덱스가 추가되었습니다.');
+    } catch (indexError) {
+      if (indexError.code === 'ER_DUP_KEYNAME') {
+        console.log('ℹ️  logistic_payment.is_arrived 인덱스가 이미 존재합니다.');
+      } else {
+        throw indexError;
+      }
+    }
+
+    try {
+      await connection.execute(`
+        CREATE INDEX IF NOT EXISTS idx_logistic_payment_arrived_date 
+        ON logistic_payment(arrived_date)
+      `);
+      console.log('✅ logistic_payment.arrived_date 인덱스가 추가되었습니다.');
+    } catch (indexError) {
+      if (indexError.code === 'ER_DUP_KEYNAME') {
+        console.log('ℹ️  logistic_payment.arrived_date 인덱스가 이미 존재합니다.');
+      } else {
+        throw indexError;
+      }
+    }
+
+    try {
+      await connection.execute(`
+        CREATE INDEX IF NOT EXISTS idx_logistic_payment_arrival_status 
+        ON logistic_payment(is_arrived, arrived_date)
+      `);
+      console.log('✅ logistic_payment.arrival_status 복합 인덱스가 추가되었습니다.');
+    } catch (indexError) {
+      if (indexError.code === 'ER_DUP_KEYNAME') {
+        console.log('ℹ️  logistic_payment.arrival_status 복합 인덱스가 이미 존재합니다.');
+      } else {
+        throw indexError;
+      }
+    }
+
+    console.log('✅ logistic_payment 도착 필드 마이그레이션 완료!');
+    
+  } catch (error) {
+    console.error('❌ logistic_payment 도착 필드 마이그레이션 오류:', error);
+    throw error;
+  } finally {
+    connection.release();
+  }
+}
+
 // 모든 마이그레이션 실행 함수
 async function runAllMigrations() {
   console.log('🚀 모든 마이그레이션 실행 시작...');
@@ -1687,6 +1798,9 @@ async function runAllMigrations() {
     
     // 새로운 소프트 삭제 마이그레이션
     await migrateSoftDeleteFields();
+    
+    // logistic_payment 도착 필드 마이그레이션 (기존 mj_packing_list 대신)
+    await migrateLogisticPaymentArrivalFields();
     
     console.log('✅ 모든 마이그레이션이 성공적으로 완료되었습니다!');
     
@@ -1714,5 +1828,6 @@ module.exports = {
   migratePaymentRequestTables,
   migrateAppVersionsTable,
   migrateSoftDeleteFields,
+  migrateLogisticPaymentArrivalFields,
   runAllMigrations
 }; 

@@ -16,6 +16,7 @@ import {
   ChevronRight,
   Smartphone,
   Upload,
+  Warehouse,
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { versionInfo } from '../../config/version';
@@ -163,6 +164,13 @@ const Sidebar = ({ selectedMenu, setSelectedMenu }) => {
         icon: Package,
         path: '/dashboard/mj-packing-list',
         description: 'MJ 프로젝트 패킹리스트 관리'
+      },
+      {
+        id: 'inventory-management',
+        label: '재고조회',
+        icon: Warehouse,
+        path: '/dashboard/inventory-management',
+        description: '제품별 입출고 기록 및 재고 현황'
       },
       {
         id: 'finance',

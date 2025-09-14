@@ -11,6 +11,7 @@ import { MJCalendar } from '../../components/Calendar';
 import { MJPackingList, MakePackingList, PackingListDetail, PackingListDateDetail, LogisticPayment, PackingCodeDetailList } from '../../components/Logistic';
 import PackingListEdit from '../../components/Logistic/PackingListEdit';
 import { Finance } from '../../components/Finance';
+import { InventoryManagement } from '../../components/stockManage';
 import MJProjectSummaryCards from '../../components/Dashboard/MJProjectSummaryCards';
 
 const Dashboard = () => {
@@ -50,6 +51,8 @@ const Dashboard = () => {
       setSelectedMenu('mj-packing-list-detail');
     } else if (path.includes('/mj-packing-list')) {
       setSelectedMenu('mj-packing-list');
+    } else if (path.includes('/inventory-management')) {
+      setSelectedMenu('inventory-management');
     } else if (path.includes('/finance')) {
       setSelectedMenu('finance');
     } else {
@@ -85,6 +88,8 @@ const Dashboard = () => {
         return <LogisticPayment />;
       case 'mj-packing-list-packing-codes':
         return <PackingCodeDetailList />;
+      case 'inventory-management':
+        return <InventoryManagement />;
       case 'finance':
         return <Finance />;
       case 'admin-dashboard':

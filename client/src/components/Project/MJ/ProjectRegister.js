@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { ArrowLeft, Save, Plus, Trash2, Copy } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../../contexts/AuthContext';
@@ -21,16 +21,100 @@ const ProjectRegister = () => {
   const [uploadedImages, setUploadedImages] = useState([]);
   const [users, setUsers] = useState([]);
   const [selectedUserId, setSelectedUserId] = useState(null);
+  const [isGeneratingName, setIsGeneratingName] = useState(false);
 
 
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
-    setFormData(prev => ({
-      ...prev,
-      [name]: value
-    }));
+    console.log('📝 입력 필드 변경:', { name, value });
+    setFormData(prev => {
+      const newData = {
+        ...prev,
+        [name]: value
+      };
+      console.log('📊 formData 업데이트:', newData);
+      return newData;
+    });
   };
+
+  // 자동 상품명 생성 함수
+  const generateProductName = useCallback(async () => {
+    console.log('🔄 자동 상품명 생성 시작...');
+    setIsGeneratingName(true);
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        console.error('❌ 토큰이 없습니다.');
+        return;
+      }
+
+      console.log('🌐 API 호출 중...', '/api/mj-project/generate-product-name');
+      console.log('🔑 사용할 토큰:', token.substring(0, 20) + '...');
+      
+      const response = await fetch('/api/mj-project/generate-product-name', {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      console.log('📡 API 응답 상태:', response.status);
+      console.log('📡 API 응답 헤더:', Object.fromEntries(response.headers.entries()));
+      
+      if (response.ok) {
+        const data = await response.json();
+        console.log('📋 API 응답 데이터:', data);
+        
+        if (data.success && data.data && data.data.productName) {
+          setFormData(prev => {
+            const newData = {
+              ...prev,
+              projectName: data.data.productName
+            };
+            console.log('✅ formData 업데이트:', newData);
+            return newData;
+          });
+          console.log('✅ 자동 상품명 생성 성공:', data.data.productName);
+        } else {
+          console.error('❌ API 응답 데이터 형식 오류:', data);
+        }
+      } else {
+        const errorText = await response.text();
+        console.error('❌ 자동 상품명 생성 실패:', response.status, errorText);
+        
+        // 404 오류인 경우 다른 엔드포인트 시도
+        if (response.status === 404) {
+          console.log('🔄 404 오류 - 모바일 엔드포인트 시도...');
+          const mobileResponse = await fetch('/api/mj-project/mobile/generate-product-name', {
+            method: 'GET',
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json'
+            }
+          });
+          
+          if (mobileResponse.ok) {
+            const mobileData = await mobileResponse.json();
+            console.log('📱 모바일 API 응답:', mobileData);
+            
+            if (mobileData.success && mobileData.data && mobileData.data.productName) {
+              setFormData(prev => ({
+                ...prev,
+                projectName: mobileData.data.productName
+              }));
+              console.log('✅ 모바일 API로 상품명 생성 성공:', mobileData.data.productName);
+            }
+          }
+        }
+      }
+    } catch (error) {
+      console.error('❌ 자동 상품명 생성 오류:', error);
+    } finally {
+      setIsGeneratingName(false);
+    }
+  }, []);
 
 
 
@@ -205,6 +289,24 @@ const ProjectRegister = () => {
     }
   }, [user]);
 
+  // formData 상태 변경 디버깅
+  useEffect(() => {
+    console.log('📊 formData 상태 변경:', formData);
+  }, [formData]);
+
+  // 페이지 로드 시 자동으로 상품명 생성
+  useEffect(() => {
+    if (isAuthenticated && user) {
+      console.log('🚀 페이지 로드 - 자동 상품명 생성 시작');
+      // 약간의 지연을 두고 실행 (서버가 완전히 준비될 때까지)
+      const timer = setTimeout(() => {
+        generateProductName();
+      }, 1000);
+      
+      return () => clearTimeout(timer);
+    }
+  }, [isAuthenticated, user, generateProductName]);
+
   // 인증 상태 확인
   if (!isAuthenticated) {
     return (
@@ -311,17 +413,37 @@ const ProjectRegister = () => {
             <div className="space-y-6">
               {/* 첫 번째 줄: 프로젝트명 */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  제품품명 *
-                </label>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="block text-sm font-medium text-gray-700">
+                    제품품명 *
+                    {isGeneratingName && (
+                      <span className="ml-2 text-xs text-blue-600">자동 생성 중...</span>
+                    )}
+                  </label>
+                  <button
+                    type="button"
+                    onClick={generateProductName}
+                    disabled={isGeneratingName}
+                    className="px-3 py-1 text-xs bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  >
+                    {isGeneratingName ? '생성 중...' : '새로 생성'}
+                  </button>
+                </div>
                 <input
                   type="text"
                   name="projectName"
                   value={formData.projectName}
                   onChange={handleInputChange}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder={isGeneratingName ? "자동 생성 중..." : "제품품명을 입력하세요"}
+                  disabled={isGeneratingName}
                   required
                 />
+                {formData.projectName && !isGeneratingName && (
+                  <p className="mt-1 text-xs text-green-600">
+                    ✅ 자동 생성된 상품명: {formData.projectName}
+                  </p>
+                )}
               </div>
 
               {/* 두 번째 줄: 수량과 목표단가 */}

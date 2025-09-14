@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { toast } from 'react-hot-toast';
 import { ArrowLeft, CreditCard, DollarSign, Calendar, Truck, Package, Box, AlertCircle, CheckCircle, Clock, Save, XCircle } from 'lucide-react';
@@ -21,7 +21,9 @@ const LogisticPayment = () => {
     unpaidCount: 0,
     pendingCount: 0,
     totalProjects: 0,
-    logisticCompanies: []
+    logisticCompanies: [],
+    arrivedCount: 0,
+    pendingArrivalCount: 0
   });
 
   // 저장 상태
@@ -54,6 +56,102 @@ const LogisticPayment = () => {
         paidCount: newPaidCount,
         unpaidCount: newUnpaidCount
       }));
+    }
+  };
+
+  // 한국도착 체크박스 변경 처리 (자동 저장)
+  const handleArrivalChange = async (index, isArrived) => {
+    const item = paymentData[index];
+    
+    try {
+      console.log(`📦 [LogisticPayment] 한국도착 체크박스 변경:`, {
+        id: item.id,
+        packing_code: item.packing_code,
+        box_no: item.box_no,
+        is_arrived: isArrived,
+        fullItem: item
+      });
+      
+      // 로컬 상태 먼저 업데이트 (즉시 UI 반영)
+      const updatedData = [...paymentData];
+      updatedData[index] = {
+        ...updatedData[index],
+        is_arrived: isArrived,
+        arrived_date: isArrived ? new Date().toISOString().split('T')[0] : null,
+        arrived_by: isArrived ? '체크박스입력' : null
+      };
+      setPaymentData(updatedData);
+      
+      // 서버에 자동 저장
+      const token = localStorage.getItem('token');
+      if (!token) {
+        console.error('❌ 토큰이 없습니다.');
+        toast.error('인증 토큰이 없습니다.');
+        return;
+      }
+      
+      const response = await fetch(`/api/logistic-payment/${item.id}/arrival`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          is_arrived: isArrived,
+          arrived_date: isArrived ? new Date().toISOString().split('T')[0] : null,
+          arrived_by: isArrived ? '체크박스입력' : null
+        })
+      });
+      
+      if (response.ok) {
+        const result = await response.json();
+        console.log('✅ [LogisticPayment] 개별 입고 확인 저장 성공:', result.data);
+        
+        // 서버 응답으로 최종 상태 업데이트
+        const finalUpdatedData = [...paymentData];
+        finalUpdatedData[index] = {
+          ...finalUpdatedData[index],
+          is_arrived: result.data.is_arrived,
+          arrived_date: result.data.arrived_date,
+          arrived_by: result.data.arrived_by
+        };
+        setPaymentData(finalUpdatedData);
+        
+        // 요약 정보 업데이트
+        const newArrivedCount = finalUpdatedData.filter(item => item.is_arrived).length;
+        const newPendingArrivalCount = finalUpdatedData.length - newArrivedCount;
+        
+        setSummary(prev => ({
+          ...prev,
+          arrivedCount: newArrivedCount,
+          pendingArrivalCount: newPendingArrivalCount
+        }));
+        
+        toast.success(isArrived ? '입고 확인이 완료되었습니다.' : '입고 확인이 취소되었습니다.');
+      } else {
+        const errorData = await response.json();
+        console.error('❌ [LogisticPayment] 개별 입고 확인 저장 실패:', errorData);
+        toast.error(`저장 실패: ${errorData.error || '알 수 없는 오류'}`);
+        
+        // 실패 시 원래 상태로 되돌리기
+        const revertedData = [...paymentData];
+        revertedData[index] = {
+          ...revertedData[index],
+          is_arrived: !isArrived
+        };
+        setPaymentData(revertedData);
+      }
+    } catch (error) {
+      console.error('❌ [LogisticPayment] 개별 입고 확인 처리 오류:', error);
+      toast.error(`처리 중 오류가 발생했습니다: ${error.message}`);
+      
+      // 실패 시 원래 상태로 되돌리기
+      const revertedData = [...paymentData];
+      revertedData[index] = {
+        ...revertedData[index],
+        is_arrived: !isArrived
+      };
+      setPaymentData(revertedData);
     }
   };
 
@@ -196,6 +294,36 @@ const LogisticPayment = () => {
     }));
   };
 
+  // 한국도착 일괄 확인 함수
+  const handleBulkArrivalConfirm = () => {
+    if (!selectedDate) {
+      toast.error('날짜를 선택해주세요.');
+      return;
+    }
+    
+    setPaymentData(prev => prev.map(item => ({
+      ...item,
+      is_arrived: true
+    })));
+    
+    toast.success('모든 항목의 한국도착이 확인되었습니다.');
+  };
+
+  // 한국도착 일괄 취소 함수
+  const handleBulkArrivalCancel = () => {
+    if (!selectedDate) {
+      toast.error('날짜를 선택해주세요.');
+      return;
+    }
+    
+    setPaymentData(prev => prev.map(item => ({
+      ...item,
+      is_arrived: false
+    })));
+    
+    toast.success('모든 항목의 한국도착이 취소되었습니다.');
+  };
+
   // 뒤로 가기
   const handleGoBack = () => {
     navigate('/dashboard/mj-packing-list');
@@ -294,9 +422,16 @@ const LogisticPayment = () => {
               saved.box_no === boxNo
             );
             
+            console.log(`🔍 [LogisticPayment] 데이터 매칭 확인:`, {
+              packing_code: item.packing_code,
+              box_no: boxNo,
+              savedItem: savedItem ? { id: savedItem.id, is_arrived: savedItem.is_arrived } : null,
+              savedPaymentDataCount: savedPaymentData.length
+            });
+            
             expandedData.push({
               ...item,
-              id: `${item.packing_code}_${i}`, // 더 명확한 ID 생성
+              id: savedItem ? savedItem.id : `${item.packing_code}_${i}`, // 실제 logistic_payment ID 사용
               mj_packing_list_id: item.id, // mj_packing_list의 실제 ID
               pl_date: selectedDate, // pl_date 추가
               box_no: boxNo, // 각 포장코드별로 1부터 시작 (1, 2, 3, ..., 20)
@@ -307,7 +442,10 @@ const LogisticPayment = () => {
               tracking_number: savedItem ? savedItem.tracking_number : '',
               shipping_cost: savedItem ? parseFloat(savedItem.logistic_fee) || 205 : 205, // 기본값 205로 설정
               payment_status: savedItem ? (savedItem.is_paid ? 'paid' : 'unpaid') : 'unpaid',
-              description: savedItem ? savedItem.description : ''
+              description: savedItem ? savedItem.description : '',
+              is_arrived: savedItem ? savedItem.is_arrived || false : false, // is_arrived 추가
+              arrived_date: savedItem ? savedItem.arrived_date || null : null, // arrived_date 추가
+              arrived_by: savedItem ? savedItem.arrived_by || null : null // arrived_by 추가
             });
           }
         });
@@ -344,6 +482,8 @@ const LogisticPayment = () => {
         const paidCount = groupedData.filter(item => item.payment_status === 'paid').length;
         const unpaidCount = groupedData.filter(item => item.payment_status === 'unpaid').length;
         const logisticCompanies = [...new Set(groupedData.map(item => item.logistic_company).filter(Boolean))];
+        const arrivedCount = groupedData.filter(item => item.is_arrived).length;
+        const pendingArrivalCount = groupedData.length - arrivedCount;
         
         setSummary({
           totalShippingCost,
@@ -351,7 +491,9 @@ const LogisticPayment = () => {
           unpaidCount,
           pendingCount: 0,
           totalProjects: groupedData.length,
-          logisticCompanies
+          logisticCompanies,
+          arrivedCount,
+          pendingArrivalCount
         });
       }
     } catch (error) {
@@ -444,7 +586,7 @@ const LogisticPayment = () => {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-3xl font-bold text-gray-900 mb-2">
-              🚚 물류 결제 관리
+              🚚 물류 결제  & 도착 관리
             </h1>
             <p className="text-gray-600">
               {selectedDate} 출고일자의 물류 결제 현황을 확인할 수 있습니다.
@@ -527,6 +669,26 @@ const LogisticPayment = () => {
               {saving ? '저장 중...' : '전체저장'}
             </button>
           )}
+          {/* 한국도착 일괄 확인 */}
+          <button
+            onClick={handleBulkArrivalConfirm}
+            disabled={!selectedDate || saving}
+            className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+            title="선택된 항목의 한국도착을 일괄 확인합니다"
+          >
+            <CheckCircle className="w-4 h-4" />
+            한국도착 확인
+          </button>
+          {/* 한국도착 일괄 취소 */}
+          <button
+            onClick={handleBulkArrivalCancel}
+            disabled={!selectedDate || saving}
+            className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+            title="선택된 항목의 한국도착을 일괄 취소합니다"
+          >
+            <XCircle className="w-4 h-4" />
+            한국도착 취소
+          </button>
           <button
             onClick={handleRefresh}
             disabled={!selectedDate}
@@ -541,7 +703,7 @@ const LogisticPayment = () => {
       </div>
 
       {/* 요약 카드들 */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
         <div className="bg-white p-6 rounded-lg shadow border border-gray-200">
           <div className="flex items-center">
             <div className="p-2 bg-blue-100 rounded-lg">
@@ -593,12 +755,39 @@ const LogisticPayment = () => {
         </div>
       </div>
 
+      {/* 한국도착 통계 카드들 */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+        <div className="bg-white p-6 rounded-lg shadow border border-gray-200">
+          <div className="flex items-center">
+            <div className="p-2 bg-green-100 rounded-lg">
+              <CheckCircle className="w-6 h-6 text-green-600" />
+            </div>
+            <div className="ml-4">
+              <p className="text-sm font-medium text-gray-600">한국도착 완료</p>
+              <p className="text-2xl font-bold text-gray-900">{summary.arrivedCount}건</p>
+            </div>
+          </div>
+        </div>
+        
+        <div className="bg-white p-6 rounded-lg shadow border border-gray-200">
+          <div className="flex items-center">
+            <div className="p-2 bg-yellow-100 rounded-lg">
+              <Clock className="w-6 h-6 text-yellow-600" />
+            </div>
+            <div className="ml-4">
+              <p className="text-sm font-medium text-gray-600">한국도착 대기</p>
+              <p className="text-2xl font-bold text-gray-900">{summary.pendingArrivalCount}건</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* 물류 결제 상세 테이블 */}
       <div className="bg-white shadow-md rounded-lg overflow-hidden">
         <div className="overflow-x-auto">
-          {/* 테이블 헤더 */}
+          {/* 테이블 헤더 - 10개 컬럼으로 확장 */}
           <div className="bg-gray-50 border-b border-gray-200">
-            <div className="grid grid-cols-9 gap-4 px-4 py-3 text-sm font-medium text-gray-700">
+            <div className="grid grid-cols-10 gap-4 px-4 py-3 text-sm font-medium text-gray-700">
               <div className="col-span-1">번호</div>
               <div className="col-span-1">포장코드</div>
               <div className="col-span-1">박스 순서</div>
@@ -607,6 +796,7 @@ const LogisticPayment = () => {
               <div className="col-span-1">송장번호</div>
               <div className="col-span-1">배송비 (CNY)</div>
               <div className="col-span-1">결제여부</div>
+              <div className="col-span-1">한국도착</div>  {/* 새로 추가 */}
               <div className="col-span-1">설명</div>
             </div>
           </div>
@@ -646,7 +836,7 @@ const LogisticPayment = () => {
               </div>
             ) : (
               paymentData.map((item, index) => (
-                <div key={item.id} className="grid grid-cols-9 gap-4 px-4 py-3 text-sm">
+                <div key={item.id} className="grid grid-cols-10 gap-4 px-4 py-3 text-sm">
                   {/* 번호 */}
                   <div className="col-span-1 text-gray-900 font-medium">
                     {index + 1}
@@ -732,6 +922,28 @@ const LogisticPayment = () => {
                         {item.payment_status === 'paid' ? '결제완료' : '미결제'}
                       </span>
                     </label>
+                  </div>
+                  
+                  {/* 한국도착 - 새로 추가 */}
+                  <div className="col-span-1">
+                    <label className="flex items-center justify-center">
+                      <input
+                        type="checkbox"
+                        checked={item.is_arrived || false}
+                        onChange={(e) => handleArrivalChange(index, e.target.checked)}
+                        className="w-4 h-4 text-green-600 bg-gray-100 border-gray-300 rounded focus:ring-green-500 focus:ring-2"
+                      />
+                      <span className={`ml-2 text-sm ${
+                        item.is_arrived ? 'text-green-700 font-medium' : 'text-gray-500'
+                      }`}>
+                        {item.is_arrived ? '도착완료' : '도착대기'}
+                      </span>
+                    </label>
+                    {item.is_arrived && item.arrived_date && (
+                      <div className="text-xs text-green-600 mt-1">
+                        {item.arrived_date}
+                      </div>
+                    )}
                   </div>
                   
                   {/* 설명 */}
