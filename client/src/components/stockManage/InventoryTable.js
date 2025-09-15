@@ -122,10 +122,7 @@ const InventoryTable = ({
                 총 수량
               </th>
               <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
-                입고예정
-              </th>
-              <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
-                입고완료
+                중국 재고 수량
               </th>
               <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
                 배송중
@@ -143,9 +140,37 @@ const InventoryTable = ({
               <tr key={item.project_id} className="hover:bg-gray-50">
                 <td className="px-6 py-4 whitespace-nowrap">
                   <div className="flex items-center">
-                    <div className="flex-shrink-0 h-10 w-10">
-                      <div className="h-10 w-10 rounded-lg bg-blue-100 flex items-center justify-center">
-                        <Package className="h-5 w-5 text-blue-600" />
+                    <div className="flex-shrink-0 h-12 w-12">
+                      {item.first_image ? (
+                        <img
+                          src={item.first_image.url}
+                          alt={item.project_name || '프로젝트 이미지'}
+                          className="h-12 w-12 object-contain rounded-lg border border-gray-200 bg-gray-50"
+                          onError={(e) => {
+                            // 이미지 로드 실패 시 대체 URL 시도
+                            if (item.first_image.fallback_url) {
+                              e.target.src = item.first_image.fallback_url;
+                            } else if (item.first_image.stored_filename) {
+                              const fallbackUrl = `/uploads/project/mj/registImage/${item.first_image.stored_filename}`;
+                              e.target.src = fallbackUrl;
+                            }
+                            
+                            // 대체 URL도 실패하면 기본 아이콘 표시
+                            e.target.onerror = () => {
+                              e.target.style.display = 'none';
+                              e.target.nextSibling.style.display = 'flex';
+                            };
+                          }}
+                          onLoad={() => {
+                            // 이미지 로드 성공
+                          }}
+                        />
+                      ) : null}
+                      <div 
+                        className={`h-12 w-12 rounded-lg bg-blue-100 flex items-center justify-center ${item.first_image ? 'hidden' : 'flex'}`}
+                        style={{ display: item.first_image ? 'none' : 'flex' }}
+                      >
+                        <Package className="h-6 w-6 text-blue-600" />
                       </div>
                     </div>
                     <div className="ml-4">
@@ -183,13 +208,6 @@ const InventoryTable = ({
                 
                 <td className="px-6 py-4 whitespace-nowrap text-center">
                   <QuantityDisplay 
-                    value={item.completed_entry_quantity}
-                    color="text-green-600"
-                  />
-                </td>
-                
-                <td className="px-6 py-4 whitespace-nowrap text-center">
-                  <QuantityDisplay 
                     value={item.shipping_quantity}
                     color="text-yellow-600"
                   />
@@ -197,7 +215,7 @@ const InventoryTable = ({
                 
                 <td className="px-6 py-4 whitespace-nowrap text-center">
                   <QuantityDisplay 
-                    value={item.delivered_quantity}
+                    value={item.arrived_quantity}
                     color="text-purple-600"
                   />
                 </td>
@@ -291,4 +309,5 @@ const InventoryTable = ({
 };
 
 export default InventoryTable;
+
 

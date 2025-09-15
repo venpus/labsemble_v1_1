@@ -11,6 +11,18 @@ import {
 } from 'lucide-react';
 
 const InventorySummary = ({ summary, loading }) => {
+  // summary 객체가 없거나 불완전한 경우 기본값 설정
+  const safeSummary = {
+    total_projects: summary?.total_projects || 0,
+    status_counts: {
+      입고예정: summary?.status_counts?.입고예정 || 0,
+      입고중: summary?.status_counts?.입고중 || 0,
+      입고완료: summary?.status_counts?.입고완료 || 0,
+      배송중: summary?.status_counts?.배송중 || 0,
+      도착완료: summary?.status_counts?.도착완료 || 0
+    }
+  };
+
   if (loading) {
     return (
       <div className="mb-6">
@@ -32,7 +44,7 @@ const InventorySummary = ({ summary, loading }) => {
     {
       key: 'total_projects',
       label: '전체 프로젝트',
-      value: summary.total_projects,
+      value: safeSummary.total_projects,
       icon: Package,
       color: 'blue',
       bgColor: 'bg-blue-50',
@@ -42,7 +54,7 @@ const InventorySummary = ({ summary, loading }) => {
     {
       key: '입고예정',
       label: '입고예정',
-      value: summary.status_counts.입고예정,
+      value: safeSummary.status_counts.입고예정,
       icon: Clock,
       color: 'gray',
       bgColor: 'bg-gray-50',
@@ -52,7 +64,7 @@ const InventorySummary = ({ summary, loading }) => {
     {
       key: '입고중',
       label: '입고중',
-      value: summary.status_counts.입고중,
+      value: safeSummary.status_counts.입고중,
       icon: Package,
       color: 'orange',
       bgColor: 'bg-orange-50',
@@ -62,7 +74,7 @@ const InventorySummary = ({ summary, loading }) => {
     {
       key: '입고완료',
       label: '입고완료',
-      value: summary.status_counts.입고완료,
+      value: safeSummary.status_counts.입고완료,
       icon: CheckCircle,
       color: 'green',
       bgColor: 'bg-green-50',
@@ -72,7 +84,7 @@ const InventorySummary = ({ summary, loading }) => {
     {
       key: '배송중',
       label: '배송중',
-      value: summary.status_counts.배송중,
+      value: safeSummary.status_counts.배송중,
       icon: Truck,
       color: 'yellow',
       bgColor: 'bg-yellow-50',
@@ -82,7 +94,7 @@ const InventorySummary = ({ summary, loading }) => {
     {
       key: '도착완료',
       label: '도착완료',
-      value: summary.status_counts.도착완료,
+      value: safeSummary.status_counts.도착완료,
       icon: AlertCircle,
       color: 'purple',
       bgColor: 'bg-purple-50',
@@ -107,7 +119,7 @@ const InventorySummary = ({ summary, loading }) => {
                     {card.label}
                   </p>
                   <p className={`text-2xl font-bold ${card.textColor}`}>
-                    {card.value.toLocaleString()}
+                    {(card.value || 0).toLocaleString()}
                   </p>
                 </div>
                 <div className={`p-2 rounded-lg ${card.bgColor}`}>
@@ -123,4 +135,5 @@ const InventorySummary = ({ summary, loading }) => {
 };
 
 export default InventorySummary;
+
 

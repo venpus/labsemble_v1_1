@@ -69,8 +69,21 @@ const LogisticPayment = () => {
         packing_code: item.packing_code,
         box_no: item.box_no,
         is_arrived: isArrived,
+        isNewRecord: item.isNewRecord,
+        hasValidId: item.id && !item.id.toString().includes('_'),
         fullItem: item
       });
+      
+      // ID 유효성 검사
+      if (!item.id || item.id.toString().includes('_')) {
+        console.error('❌ [LogisticPayment] 유효하지 않은 ID:', item.id);
+        if (item.isNewRecord) {
+          toast.error('먼저 전체저장을 실행하여 데이터를 생성해주세요.');
+        } else {
+          toast.error('유효하지 않은 데이터입니다. 페이지를 새로고침해주세요.');
+        }
+        return;
+      }
       
       // 로컬 상태 먼저 업데이트 (즉시 UI 반영)
       const updatedData = [...paymentData];
@@ -90,17 +103,31 @@ const LogisticPayment = () => {
         return;
       }
       
+      const requestData = {
+        is_arrived: isArrived,
+        arrived_date: isArrived ? new Date().toISOString().split('T')[0] : null,
+        arrived_by: isArrived ? '체크박스입력' : null
+      };
+      
+      console.log(`🌐 [LogisticPayment] API 호출 시작:`, {
+        url: `/api/logistic-payment/${item.id}/arrival`,
+        method: 'PUT',
+        data: requestData
+      });
+      
       const response = await fetch(`/api/logistic-payment/${item.id}/arrival`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({
-          is_arrived: isArrived,
-          arrived_date: isArrived ? new Date().toISOString().split('T')[0] : null,
-          arrived_by: isArrived ? '체크박스입력' : null
-        })
+        body: JSON.stringify(requestData)
+      });
+      
+      console.log(`🌐 [LogisticPayment] API 응답:`, {
+        status: response.status,
+        statusText: response.statusText,
+        ok: response.ok
       });
       
       if (response.ok) {
@@ -188,11 +215,25 @@ const LogisticPayment = () => {
           tracking_number: item.tracking_number || null,
           logistic_fee: parseFloat(item.shipping_cost) || 0, // 숫자로 변환
           is_paid: item.payment_status === 'paid' || false,
-          description: item.description || null
+          description: item.description || null,
+          // 한국도착 관련 필드 추가
+          is_arrived: item.is_arrived || false,
+          arrived_date: item.arrived_date || null,
+          arrived_by: item.arrived_by || null
         };
       });
 
       console.log('💾 [LogisticPayment] 저장할 데이터:', saveData);
+      
+      // 한국도착 관련 필드가 포함되어 있는지 확인
+      const arrivalFields = saveData.map(item => ({
+        packing_code: item.packing_code,
+        box_no: item.box_no,
+        is_arrived: item.is_arrived,
+        arrived_date: item.arrived_date,
+        arrived_by: item.arrived_by
+      }));
+      console.log('📦 [LogisticPayment] 한국도착 필드 확인:', arrivalFields);
 
       // API 호출
       const response = await fetch('/api/logistic-payment/update', {
@@ -215,14 +256,17 @@ const LogisticPayment = () => {
       const result = await response.json();
       
       if (result.success) {
-        const message = result.data.errors && result.data.errors.length > 0 
+        // 기본 저장 메시지
+        const baseMessage = result.data.errors && result.data.errors.length > 0 
           ? `물류 결제 정보가 저장되었습니다. (${result.data.saved}개 새로 저장, ${result.data.updated}개 업데이트, ${result.data.errors.length}개 오류)`
           : `물류 결제 정보가 성공적으로 저장되었습니다. (${result.data.saved}개 새로 저장, ${result.data.updated}개 업데이트)`;
         
-        toast.success(message);
+        toast.success(baseMessage);
         
         // 저장된 데이터로 새로고침하여 DB에서 최신 데이터 가져오기
+        console.log('🔄 [LogisticPayment] 전체저장 후 데이터 새로고침 시작');
         await fetchPaymentData();
+        console.log('✅ [LogisticPayment] 전체저장 후 데이터 새로고침 완료');
         
         console.log('✅ [LogisticPayment] 저장 완료:', result.data);
       } else {
@@ -323,6 +367,7 @@ const LogisticPayment = () => {
     
     toast.success('모든 항목의 한국도착이 취소되었습니다.');
   };
+
 
   // 뒤로 가기
   const handleGoBack = () => {
@@ -425,9 +470,24 @@ const LogisticPayment = () => {
             console.log(`🔍 [LogisticPayment] 데이터 매칭 확인:`, {
               packing_code: item.packing_code,
               box_no: boxNo,
-              savedItem: savedItem ? { id: savedItem.id, is_arrived: savedItem.is_arrived } : null,
-              savedPaymentDataCount: savedPaymentData.length
+              savedItem: savedItem ? { 
+                id: savedItem.id, 
+                is_arrived: savedItem.is_arrived,
+                arrived_date: savedItem.arrived_date,
+                arrived_by: savedItem.arrived_by
+              } : null,
+              savedPaymentDataCount: savedPaymentData.length,
+              hasValidId: savedItem ? (savedItem.id && !savedItem.id.toString().includes('_')) : false
             });
+            
+            // savedItem이 없는 경우 새로 생성해야 함
+            if (!savedItem) {
+              console.warn(`⚠️ [LogisticPayment] savedItem이 없음 - 새로 생성 필요:`, {
+                packing_code: item.packing_code,
+                box_no: boxNo,
+                mj_packing_list_id: item.id
+              });
+            }
             
             expandedData.push({
               ...item,
@@ -445,7 +505,8 @@ const LogisticPayment = () => {
               description: savedItem ? savedItem.description : '',
               is_arrived: savedItem ? savedItem.is_arrived || false : false, // is_arrived 추가
               arrived_date: savedItem ? savedItem.arrived_date || null : null, // arrived_date 추가
-              arrived_by: savedItem ? savedItem.arrived_by || null : null // arrived_by 추가
+              arrived_by: savedItem ? savedItem.arrived_by || null : null, // arrived_by 추가
+              isNewRecord: !savedItem // 새 레코드 여부 표시
             });
           }
         });
@@ -930,7 +991,16 @@ const LogisticPayment = () => {
                       <input
                         type="checkbox"
                         checked={item.is_arrived || false}
-                        onChange={(e) => handleArrivalChange(index, e.target.checked)}
+                        onChange={(e) => {
+                          console.log(`🖱️ [LogisticPayment] 체크박스 클릭 감지:`, {
+                            index,
+                            checked: e.target.checked,
+                            itemId: item.id,
+                            packingCode: item.packing_code,
+                            boxNo: item.box_no
+                          });
+                          handleArrivalChange(index, e.target.checked);
+                        }}
                         className="w-4 h-4 text-green-600 bg-gray-100 border-gray-300 rounded focus:ring-green-500 focus:ring-2"
                       />
                       <span className={`ml-2 text-sm ${

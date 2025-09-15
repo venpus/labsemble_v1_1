@@ -6,6 +6,7 @@ const InventoryFilter = ({ filters, onFilterChange, loading }) => {
   const [projects, setProjects] = useState([]);
   const [loadingProjects, setLoadingProjects] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [searchInput, setSearchInput] = useState(filters.search || '');
 
   // 프로젝트 목록 로드
   const loadProjects = async () => {
@@ -27,10 +28,25 @@ const InventoryFilter = ({ filters, onFilterChange, loading }) => {
   }, []);
 
   const handleInputChange = (field, value) => {
-    onFilterChange({ [field]: value });
+    if (field === 'search') {
+      setSearchInput(value);
+    } else {
+      onFilterChange({ [field]: value });
+    }
+  };
+
+  const handleSearch = () => {
+    onFilterChange({ search: searchInput });
+  };
+
+  const handleKeyPress = (e) => {
+    if (e.key === 'Enter') {
+      handleSearch();
+    }
   };
 
   const handleClearFilters = () => {
+    setSearchInput('');
     onFilterChange({
       projectId: '',
       status: '',
@@ -83,16 +99,29 @@ const InventoryFilter = ({ filters, onFilterChange, loading }) => {
           <label className="block text-sm font-medium text-gray-700 mb-1">
             프로젝트 검색
           </label>
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
-            <input
-              type="text"
-              value={filters.search}
-              onChange={(e) => handleInputChange('search', e.target.value)}
-              placeholder="프로젝트명으로 검색..."
-              className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+          <div className="flex space-x-2">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <input
+                type="text"
+                value={searchInput}
+                onChange={(e) => handleInputChange('search', e.target.value)}
+                onKeyPress={handleKeyPress}
+                placeholder="프로젝트명으로 검색..."
+                className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                disabled={loading}
+                inputMode="text"
+                autoComplete="off"
+                spellCheck="false"
+              />
+            </div>
+            <button
+              onClick={handleSearch}
               disabled={loading}
-            />
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              검색
+            </button>
           </div>
         </div>
 
@@ -202,4 +231,5 @@ const InventoryFilter = ({ filters, onFilterChange, loading }) => {
 };
 
 export default InventoryFilter;
+
 

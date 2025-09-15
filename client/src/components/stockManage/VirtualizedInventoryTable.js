@@ -107,7 +107,7 @@ const VirtualizedInventoryTable = ({
         
         <div className="w-24 px-6 py-4 text-center">
           <QuantityDisplay 
-            value={item.delivered_quantity}
+            value={item.arrived_quantity}
             color="text-purple-600"
           />
         </div>

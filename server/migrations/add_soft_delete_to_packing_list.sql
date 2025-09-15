@@ -12,3 +12,4 @@ CREATE INDEX idx_mj_packing_list_deleted_at ON mj_packing_list(deleted_at);
 -- UPDATE mj_packing_list SET is_deleted = FALSE, deleted_at = NULL, deleted_by = NULL;
 
 
+

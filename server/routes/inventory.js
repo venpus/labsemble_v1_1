@@ -59,7 +59,7 @@ router.get('/product-inventory-status', authMiddleware, async (req, res) => {
       projectParams.push(`%${search}%`);
     }
     
-    projectQuery += ' ORDER BY p.project_name ASC LIMIT ? OFFSET ?';
+    projectQuery += ' ORDER BY p.id DESC LIMIT ? OFFSET ?';
     projectParams.push(parseInt(limit), parseInt(offset));
     
     const [projects] = await connection.execute(projectQuery, projectParams);
@@ -80,42 +80,53 @@ router.get('/product-inventory-status', authMiddleware, async (req, res) => {
     const [quantitiesData] = await connection.execute(`
       SELECT 
         p.id as project_id,
-        COALESCE(we_scheduled.total, 0) as scheduled_entry_quantity,
-        COALESCE(we_completed.total, 0) as completed_entry_quantity,
+        p.quantity,
+        p.entry_quantity,
+        CASE 
+          WHEN p.entry_quantity > 0 THEN GREATEST(0, p.quantity - COALESCE(pl_shipping.total, 0) - COALESCE(pl_arrived.total, 0))
+          ELSE 0
+        END as scheduled_entry_quantity,
+        CASE 
+          WHEN p.entry_quantity > 0 THEN GREATEST(0, p.quantity - COALESCE(pl_shipping.total, 0) - COALESCE(pl_arrived.total, 0))
+          ELSE 0
+        END as completed_entry_quantity,
         COALESCE(pl_shipping.total, 0) as shipping_quantity,
-        COALESCE(pl_delivered.total, 0) as delivered_quantity,
         COALESCE(pl_arrived.total, 0) as arrived_quantity
       FROM mj_project p
       LEFT JOIN (
-        SELECT project_id, SUM(quantity) as total
-        FROM warehouse_entries 
-        WHERE status = '입고중'
-        GROUP BY project_id
-      ) we_scheduled ON p.id = we_scheduled.project_id
-      LEFT JOIN (
-        SELECT project_id, SUM(quantity) as total
-        FROM warehouse_entries 
-        WHERE status = '입고완료'
-        GROUP BY project_id
-      ) we_completed ON p.id = we_completed.project_id
-      LEFT JOIN (
-        SELECT mpl.project_id, SUM(mpl.box_count * mpl.packaging_count * mpl.packaging_method) as total
+        -- 배송중: logistic_payment에서 is_arrived = false인 박스들의 수량
+        -- packing_code + pl_date로 연결하여 모든 상품에 동일한 박스 수 적용
+        SELECT 
+          mpl.project_id, 
+          SUM(lp_shipping.shipping_count * mpl.packaging_count * mpl.packaging_method) as total
         FROM mj_packing_list mpl
-        LEFT JOIN logistic_payment lp ON mpl.id = lp.mj_packing_list_id
-        WHERE (lp.id IS NULL OR lp.is_paid = false) AND (mpl.is_arrived IS NULL OR mpl.is_arrived = false)
+        JOIN (
+          SELECT 
+            packing_code,
+            pl_date,
+            COUNT(*) as shipping_count
+          FROM logistic_payment 
+          WHERE is_arrived = false
+          GROUP BY packing_code, pl_date
+        ) lp_shipping ON mpl.packing_code = lp_shipping.packing_code AND mpl.pl_date = lp_shipping.pl_date
         GROUP BY mpl.project_id
       ) pl_shipping ON p.id = pl_shipping.project_id
       LEFT JOIN (
-        SELECT mpl.project_id, SUM(mpl.box_count * mpl.packaging_count * mpl.packaging_method) as total
+        -- 도착완료: logistic_payment에서 is_arrived = true인 박스들의 수량
+        -- packing_code + pl_date로 연결하여 모든 상품에 동일한 박스 수 적용
+        SELECT 
+          mpl.project_id, 
+          SUM(lp_arrived.arrived_count * mpl.packaging_count * mpl.packaging_method) as total
         FROM mj_packing_list mpl
-        JOIN logistic_payment lp ON mpl.id = lp.mj_packing_list_id
-        WHERE lp.is_paid = true AND (mpl.is_arrived IS NULL OR mpl.is_arrived = false)
-        GROUP BY mpl.project_id
-      ) pl_delivered ON p.id = pl_delivered.project_id
-      LEFT JOIN (
-        SELECT mpl.project_id, SUM(mpl.box_count * mpl.packaging_count * mpl.packaging_method) as total
-        FROM mj_packing_list mpl
-        WHERE mpl.is_arrived = true
+        JOIN (
+          SELECT 
+            packing_code,
+            pl_date,
+            COUNT(*) as arrived_count
+          FROM logistic_payment 
+          WHERE is_arrived = true
+          GROUP BY packing_code, pl_date
+        ) lp_arrived ON mpl.packing_code = lp_arrived.packing_code AND mpl.pl_date = lp_arrived.pl_date
         GROUP BY mpl.project_id
       ) pl_arrived ON p.id = pl_arrived.project_id
       WHERE p.id IN (${projectIds.map(() => '?').join(',')})
@@ -128,18 +139,45 @@ router.get('/product-inventory-status', authMiddleware, async (req, res) => {
         scheduled: q.scheduled_entry_quantity,
         completed: q.completed_entry_quantity,
         shipping: q.shipping_quantity,
-        delivered: q.delivered_quantity,
         arrived: q.arrived_quantity
       });
     });
 
-    // 프로젝트 데이터와 수량 데이터 결합
-    const inventoryStatus = projects.map(project => {
+    // 각 프로젝트에 대한 첫 번째 이미지 정보 조회
+    const inventoryStatus = await Promise.all(projects.map(async (project) => {
       const quantities = quantitiesMap.get(project.id) || {
-        scheduled: 0, completed: 0, shipping: 0, delivered: 0, arrived: 0
+        scheduled: 0, completed: 0, shipping: 0, arrived: 0
       };
       
       const currentStatus = calculateCurrentStatus(project, quantities);
+      
+      // 해당 프로젝트의 첫 번째 이미지 조회
+      let firstImage = null;
+      try {
+        const [images] = await pool.execute(`
+          SELECT id, file_name, file_path, original_name, created_at
+          FROM mj_project_images 
+          WHERE project_id = ?
+          ORDER BY created_at ASC
+          LIMIT 1
+        `, [project.id]);
+
+        if (images.length > 0) {
+          const image = images[0];
+          firstImage = {
+            id: image.id,
+            original_filename: image.original_name,
+            stored_filename: image.file_name,
+            file_path: image.file_path,
+            created_at: image.created_at,
+            url: `/api/warehouse/image/${image.file_name}`,
+            thumbnail_url: `/api/warehouse/image/${image.file_name}`,
+            fallback_url: `/uploads/project/mj/registImage/${image.file_name}`
+          };
+        }
+      } catch (imageError) {
+        console.log(`⚠️ [inventory] 프로젝트 ${project.id} 이미지 조회 오류:`, imageError.message);
+      }
       
       return {
         project_id: project.id,
@@ -151,16 +189,16 @@ router.get('/product-inventory-status', authMiddleware, async (req, res) => {
         scheduled_entry_quantity: quantities.scheduled,
         completed_entry_quantity: quantities.completed,
         shipping_quantity: quantities.shipping,
-        delivered_quantity: quantities.delivered,
         arrived_quantity: quantities.arrived,
         current_status: currentStatus,
         factory_shipping_status: project.factory_shipping_status,
         actual_factory_shipping_date: project.actual_factory_shipping_date,
         expected_factory_shipping_date: project.expected_factory_shipping_date,
+        first_image: firstImage,
         created_at: project.created_at,
         updated_at: project.updated_at
       };
-    });
+    }));
     
     // 3. 상태별 필터링
     let filteredData = inventoryStatus;
@@ -241,21 +279,21 @@ router.get('/product-inventory-status', authMiddleware, async (req, res) => {
 
 // 상태 계산 함수
 function calculateCurrentStatus(project, quantities) {
-  const { scheduled, completed, shipping, delivered } = quantities;
+  const { scheduled, completed, shipping, arrived } = quantities;
   
-  // 도착완료: 배송 완료된 수량이 있는 경우
-  if (delivered > 0) return '도착완료';
+  // 도착완료: is_arrived = true인 수량이 있는 경우
+  if (arrived > 0) return '도착완료';
   
-  // 배송중: 패킹리스트는 있지만 배송 완료되지 않은 경우
+  // 배송중: is_arrived = false 또는 null인 수량이 있는 경우
   if (shipping > 0) return '배송중';
   
   // 입고완료: 입고 완료된 수량이 있는 경우
   if (completed > 0) return '입고완료';
   
-  // 입고중: 입고 예정 수량이 있는 경우
-  if (scheduled > 0) return '입고중';
+  // 입고예정: quantity - entry_quantity > 0인 경우
+  if (scheduled > 0) return '입고예정';
   
-  // 입고예정: 기본 상태
+  // 기본 상태: 입고예정
   return '입고예정';
 }
 

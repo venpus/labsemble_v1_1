@@ -245,3 +245,4 @@ const InventoryHistoryModal = ({ project, onClose }) => {
 
 export default InventoryHistoryModal;
 
+

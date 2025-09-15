@@ -88,7 +88,7 @@ const InventoryManagement = () => {
           scheduled_entry_quantity: parseInt(item.scheduled_entry_quantity) || 0,
           completed_entry_quantity: parseInt(item.completed_entry_quantity) || 0,
           shipping_quantity: parseInt(item.shipping_quantity) || 0,
-          delivered_quantity: parseInt(item.delivered_quantity) || 0,
+          arrived_quantity: parseInt(item.arrived_quantity) || 0,
           total_quantity: parseInt(item.total_quantity) || 0,
           entry_quantity: parseInt(item.entry_quantity) || 0,
           export_quantity: parseInt(item.export_quantity) || 0,
@@ -96,8 +96,22 @@ const InventoryManagement = () => {
         }));
         
         setInventoryData(processedData);
-        setPagination(data.pagination || {});
-        setSummary(data.summary || {});
+        setPagination(data.pagination || {
+          current_page: 1,
+          per_page: 20,
+          total: 0,
+          total_pages: 0
+        });
+        setSummary(data.summary || {
+          total_projects: 0,
+          status_counts: {
+            입고예정: 0,
+            입고중: 0,
+            입고완료: 0,
+            배송중: 0,
+            도착완료: 0
+          }
+        });
         console.log('✅ 재고 데이터 로드 완료:', { processedData, pagination: data.pagination, summary: data.summary });
       } else {
         throw new Error(data?.error || '재고 데이터를 불러오는데 실패했습니다.');
@@ -110,7 +124,7 @@ const InventoryManagement = () => {
     }
   }, [filters]);
 
-  // 초기 로드 (의존성 배열 수정)
+  // 필터 변경 시 데이터 로드
   useEffect(() => {
     loadInventoryData();
   }, [loadInventoryData]);
@@ -179,6 +193,7 @@ const InventoryManagement = () => {
 
   return (
     <div className="p-6 bg-gray-50 min-h-screen">
+      <div className="max-w-7xl mx-auto">
       {/* 헤더 */}
       <div className="mb-6">
         <div className="flex items-center justify-between">
@@ -256,8 +271,10 @@ const InventoryManagement = () => {
           onClose={() => setShowHistoryModal(false)}
         />
       )}
+      </div>
     </div>
   );
 };
 
 export default InventoryManagement;
+

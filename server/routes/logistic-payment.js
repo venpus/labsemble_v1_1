@@ -44,6 +44,15 @@ router.put('/update', auth, async (req, res) => {
           description
         } = item;
         
+        // 한국도착 관련 필드 로그
+        console.log(`📦 [LogisticPayment] 처리 중인 항목:`, {
+          packing_code,
+          box_no,
+          is_arrived,
+          arrived_date,
+          arrived_by
+        });
+        
         // pl_date 검증
         if (!pl_date) {
           errors.push(`pl_date가 누락되었습니다: ${JSON.stringify(item)}`);
@@ -103,7 +112,7 @@ router.put('/update', auth, async (req, res) => {
               box_no
             ]);
             updatedCount++;
-            // 데이터 업데이트 완료
+            // 데이터 업데이트 완료 (전체저장 후 일괄 동기화)
           } else {
             // 새 데이터 삽입
             await connection.execute(`
@@ -138,7 +147,7 @@ router.put('/update', auth, async (req, res) => {
               description || null
             ]);
             savedCount++;
-            // 새 데이터 저장 완료
+            // 새 데이터 저장 완료 (전체저장 후 일괄 동기화)
           }
       } catch (error) {
         console.error(`❌ [LogisticPayment] 데이터 처리 오류:`, error);
@@ -148,8 +157,6 @@ router.put('/update', auth, async (req, res) => {
 
     // 트랜잭션 커밋
     await connection.commit();
-
-    // 저장 완료
 
     res.json({
       success: true,
@@ -883,27 +890,27 @@ router.put('/:id/arrival', auth, async (req, res) => {
       WHERE id = ?
     `, [is_arrived, finalArrivedDate, finalArrivedBy, id]);
     
-    console.log('✅ [individual-arrival] 개별 입고 확인 업데이트 완료:', {
-      id,
-      packing_code: record.packing_code,
-      box_no: record.box_no,
-      is_arrived,
-      arrived_date: finalArrivedDate,
-      arrived_by: finalArrivedBy
-    });
-    
-    res.json({
-      success: true,
-      message: '입고 확인 상태가 성공적으로 업데이트되었습니다.',
-      data: {
-        id: parseInt(id),
-        packing_code: record.packing_code,
-        box_no: record.box_no,
-        is_arrived,
-        arrived_date: finalArrivedDate,
-        arrived_by: finalArrivedBy
-      }
-    });
+            console.log('✅ [individual-arrival] 개별 입고 확인 업데이트 완료:', {
+              id,
+              packing_code: record.packing_code,
+              box_no: record.box_no,
+              is_arrived,
+              arrived_date: finalArrivedDate,
+              arrived_by: finalArrivedBy
+            });
+            
+            res.json({
+              success: true,
+              message: '입고 확인 상태가 성공적으로 업데이트되었습니다.',
+              data: {
+                id: parseInt(id),
+                packing_code: record.packing_code,
+                box_no: record.box_no,
+                is_arrived,
+                arrived_date: finalArrivedDate,
+                arrived_by: finalArrivedBy
+              }
+            });
     
   } catch (error) {
     console.error('❌ [individual-arrival] 개별 입고 확인 업데이트 오류:', error);
@@ -915,5 +922,6 @@ router.put('/:id/arrival', auth, async (req, res) => {
     connection.release();
   }
 });
+
 
 module.exports = router; 
