@@ -269,6 +269,14 @@ router.get('/product-inventory-status', authMiddleware, async (req, res) => {
       arrived: 200       // 한국 도착
     });
 
+    // ID 76 제품 하드코딩 데이터 설정
+    quantitiesMap.set(76, {
+      scheduled: 500,    // 중국 재고 수량
+      completed: 0,      // 사용하지 않음
+      shipping: 0,       // 배송중
+      arrived: 500       // 한국 도착
+    });
+
     // ID 79 제품 하드코딩 데이터 설정
     quantitiesMap.set(79, {
       scheduled: 0,      // 중국 재고 수량
