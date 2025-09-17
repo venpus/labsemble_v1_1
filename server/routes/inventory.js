@@ -59,6 +59,10 @@ router.get('/product-inventory-status', authMiddleware, async (req, res) => {
       projectParams.push(`%${search}%`);
     }
     
+    // ID 24 제품 제외 필터
+    projectQuery += ' AND p.id != ?';
+    projectParams.push(24);
+    
     projectQuery += ' ORDER BY p.id DESC LIMIT ? OFFSET ?';
     projectParams.push(parseInt(limit), parseInt(offset));
     
@@ -143,6 +147,136 @@ router.get('/product-inventory-status', authMiddleware, async (req, res) => {
       });
     });
 
+    // ID 3 제품 하드코딩 데이터 설정
+    quantitiesMap.set(3, {
+      scheduled: 0,      // 중국 재고 수량
+      completed: 0,      // 사용하지 않음
+      shipping: 0,       // 배송중
+      arrived: 2000      // 한국 도착
+    });
+
+    // ID 7 제품 하드코딩 데이터 설정
+    quantitiesMap.set(7, {
+      scheduled: 0,      // 중국 재고 수량
+      completed: 0,      // 사용하지 않음
+      shipping: 0,       // 배송중
+      arrived: 300       // 한국 도착
+    });
+
+    // ID 27 제품 하드코딩 데이터 설정
+    quantitiesMap.set(27, {
+      scheduled: 0,      // 중국 재고 수량
+      completed: 0,      // 사용하지 않음
+      shipping: 0,       // 배송중
+      arrived: 4000      // 한국 도착
+    });
+
+    // ID 28, 29, 30, 31 제품 하드코딩 데이터 설정 (총 수량과 동일한 한국 도착)
+    quantitiesMap.set(28, {
+      scheduled: 0,      // 중국 재고 수량
+      completed: 0,      // 사용하지 않음
+      shipping: 0,       // 배송중
+      arrived: 'total'   // 한국 도착 (총 수량과 동일)
+    });
+    quantitiesMap.set(29, {
+      scheduled: 0,      // 중국 재고 수량
+      completed: 0,      // 사용하지 않음
+      shipping: 0,       // 배송중
+      arrived: 'total'   // 한국 도착 (총 수량과 동일)
+    });
+    quantitiesMap.set(30, {
+      scheduled: 0,      // 중국 재고 수량
+      completed: 0,      // 사용하지 않음
+      shipping: 0,       // 배송중
+      arrived: 'total'   // 한국 도착 (총 수량과 동일)
+    });
+    quantitiesMap.set(31, {
+      scheduled: 0,      // 중국 재고 수량
+      completed: 0,      // 사용하지 않음
+      shipping: 0,       // 배송중
+      arrived: 'total'   // 한국 도착 (총 수량과 동일)
+    });
+
+    // ID 33 제품 하드코딩 데이터 설정
+    quantitiesMap.set(33, {
+      scheduled: 0,      // 중국 재고 수량
+      completed: 0,      // 사용하지 않음
+      shipping: 0,       // 배송중
+      arrived: 2000      // 한국 도착
+    });
+
+    // ID 35 제품 하드코딩 데이터 설정
+    quantitiesMap.set(35, {
+      scheduled: 2,      // 중국 재고 수량
+      completed: 0,      // 사용하지 않음
+      shipping: 0,       // 배송중
+      arrived: 998       // 한국 도착
+    });
+
+    // ID 37 제품 하드코딩 데이터 설정
+    quantitiesMap.set(37, {
+      scheduled: 0,      // 중국 재고 수량
+      completed: 0,      // 사용하지 않음
+      shipping: 0,       // 배송중
+      arrived: 1200      // 한국 도착
+    });
+
+    // ID 38 제품 하드코딩 데이터 설정
+    quantitiesMap.set(38, {
+      scheduled: 0,      // 중국 재고 수량
+      completed: 0,      // 사용하지 않음
+      shipping: 380,     // 배송중
+      arrived: 720       // 한국 도착
+    });
+
+    // ID 39 제품 하드코딩 데이터 설정
+    quantitiesMap.set(39, {
+      scheduled: 0,      // 중국 재고 수량
+      completed: 0,      // 사용하지 않음
+      shipping: 733,     // 배송중
+      arrived: 367       // 한국 도착
+    });
+
+    // ID 42 제품 하드코딩 데이터 설정
+    quantitiesMap.set(42, {
+      scheduled: 0,      // 중국 재고 수량
+      completed: 0,      // 사용하지 않음
+      shipping: 0,       // 배송중
+      arrived: 5505      // 한국 도착
+    });
+
+    // ID 46 제품 하드코딩 데이터 설정
+    quantitiesMap.set(46, {
+      scheduled: 0,      // 중국 재고 수량
+      completed: 0,      // 사용하지 않음
+      shipping: 0,       // 배송중
+      arrived: 900       // 한국 도착
+    });
+
+    // ID 47 제품 하드코딩 데이터 설정
+    quantitiesMap.set(47, {
+      scheduled: 0,      // 중국 재고 수량
+      completed: 0,      // 사용하지 않음
+      shipping: 0,       // 배송중
+      arrived: 150       // 한국 도착
+    });
+
+    // ID 52 제품 하드코딩 데이터 설정
+    quantitiesMap.set(52, {
+      scheduled: 0,      // 중국 재고 수량
+      completed: 0,      // 사용하지 않음
+      shipping: 0,       // 배송중
+      arrived: 200       // 한국 도착
+    });
+
+    // ID 79 제품 하드코딩 데이터 설정
+    quantitiesMap.set(79, {
+      scheduled: 0,      // 중국 재고 수량
+      completed: 0,      // 사용하지 않음
+      shipping: 0,       // 배송중
+      arrived: 350       // 한국 도착
+    });
+
     // 각 프로젝트에 대한 첫 번째 이미지 정보 조회
     const inventoryStatus = await Promise.all(projects.map(async (project) => {
       const quantities = quantitiesMap.get(project.id) || {
@@ -179,17 +313,59 @@ router.get('/product-inventory-status', authMiddleware, async (req, res) => {
         console.log(`⚠️ [inventory] 프로젝트 ${project.id} 이미지 조회 오류:`, imageError.message);
       }
       
+      // 하드코딩 제품 처리
+      const isHardcodedProject = project.id === 3 || project.id === 7 || project.id === 27 || 
+                                 project.id === 28 || project.id === 29 || project.id === 30 || project.id === 31 ||
+                                 project.id === 33 || project.id === 35 || project.id === 37 || 
+                                 project.id === 38 || project.id === 39 || project.id === 42 || 
+                                 project.id === 46 || project.id === 47 || project.id === 52 || project.id === 79;
+      let hardcodedTotalQuantity = project.total_quantity;
+      
+      if (project.id === 3) {
+        hardcodedTotalQuantity = 2000;
+      } else if (project.id === 7) {
+        hardcodedTotalQuantity = 300;
+      } else if (project.id === 27) {
+        hardcodedTotalQuantity = 4000;
+      } else if (project.id === 33) {
+        hardcodedTotalQuantity = 2000;
+      } else if (project.id === 35) {
+        hardcodedTotalQuantity = 1000;
+      } else if (project.id === 37) {
+        hardcodedTotalQuantity = 1200;
+      } else if (project.id === 38) {
+        hardcodedTotalQuantity = 1100;
+      } else if (project.id === 39) {
+        hardcodedTotalQuantity = 1100;
+      } else if (project.id === 42) {
+        hardcodedTotalQuantity = 5505;
+      } else if (project.id === 46) {
+        hardcodedTotalQuantity = 900;
+      } else if (project.id === 47) {
+        hardcodedTotalQuantity = 150;
+      } else if (project.id === 52) {
+        hardcodedTotalQuantity = 200;
+      } else if (project.id === 79) {
+        hardcodedTotalQuantity = 350;
+      }
+      
+      // 한국 도착 수량이 'total'인 경우 총 수량과 동일하게 설정
+      let hardcodedArrivedQuantity = quantities.arrived;
+      if (quantities.arrived === 'total') {
+        hardcodedArrivedQuantity = hardcodedTotalQuantity;
+      }
+      
       return {
         project_id: project.id,
         project_name: project.project_name,
-        total_quantity: project.total_quantity,
+        total_quantity: hardcodedTotalQuantity,
         entry_quantity: project.entry_quantity,
         export_quantity: project.export_quantity,
         remain_quantity: project.remain_quantity,
         scheduled_entry_quantity: quantities.scheduled,
         completed_entry_quantity: quantities.completed,
         shipping_quantity: quantities.shipping,
-        arrived_quantity: quantities.arrived,
+        arrived_quantity: hardcodedArrivedQuantity,
         current_status: currentStatus,
         factory_shipping_status: project.factory_shipping_status,
         actual_factory_shipping_date: project.actual_factory_shipping_date,
