@@ -340,7 +340,7 @@ router.get('/product-inventory-status', authMiddleware, async (req, res) => {
                                  project.id === 28 || project.id === 29 || project.id === 30 || project.id === 31 ||
                                  project.id === 33 || project.id === 35 || project.id === 37 || 
                                  project.id === 38 || project.id === 39 || project.id === 42 || 
-                                 project.id === 46 || project.id === 47 || project.id === 52 || project.id === 79;
+                                 project.id === 46 || project.id === 47 || project.id === 52 || project.id === 76 || project.id === 79;
       let hardcodedTotalQuantity = project.total_quantity;
       
       if (project.id === 3) {
@@ -367,6 +367,8 @@ router.get('/product-inventory-status', authMiddleware, async (req, res) => {
         hardcodedTotalQuantity = 150;
       } else if (project.id === 52) {
         hardcodedTotalQuantity = 200;
+      } else if (project.id === 76) {
+        hardcodedTotalQuantity = 500;
       } else if (project.id === 79) {
         hardcodedTotalQuantity = 350;
       }
