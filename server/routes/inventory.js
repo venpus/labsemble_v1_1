@@ -42,9 +42,23 @@ router.get('/product-inventory-status', authMiddleware, async (req, res) => {
     const projectParams = [];
     
     // 권한에 따른 필터링
-    if (!req.user.isAdmin) {
-      projectQuery += ' AND p.user_id = ?';
-      projectParams.push(req.user.id);
+    if (!req.user || !req.user.isAdmin) {
+      if (req.user && req.user.id) {
+        projectQuery += ' AND p.user_id = ?';
+        projectParams.push(req.user.id);
+      } else {
+        // 인증되지 않은 사용자는 빈 결과 반환
+        return res.json({
+          success: true,
+          data: [],
+          pagination: {
+            currentPage: parseInt(page),
+            totalPages: 0,
+            totalItems: 0,
+            itemsPerPage: parseInt(limit)
+          }
+        });
+      }
     }
     
     // 프로젝트 ID 필터

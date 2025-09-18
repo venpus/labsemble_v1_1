@@ -16,6 +16,7 @@ const authMiddleware = (req, res, next) => {
     
     // 사용자 정보를 req.user에 추가
     req.user = {
+      id: decoded.userId,  // id 필드 추가
       userId: decoded.userId,
       email: decoded.email,
       username: decoded.username,
