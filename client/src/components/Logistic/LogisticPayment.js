@@ -36,8 +36,25 @@ const LogisticPayment = () => {
     // 배송비는 숫자로 변환하여 저장
     if (field === 'shipping_cost') {
       const numericValue = parseFloat(value) || 0;
-      updatedData[index] = { ...updatedData[index], [field]: numericValue };
-      console.log(`💰 [LogisticPayment] 배송비 변경: ${value} → ${numericValue} (숫자 변환)`);
+      
+      // 9월 16일 이후인 경우 박스비용(4.8)과 포장 인건비(1)를 자동으로 추가
+      let finalValue = numericValue;
+      if (selectedDate >= '2024-09-16' && numericValue > 0) {
+        // 사용자가 입력한 값이 기본 물류비(205) 이상인 경우에만 추가 비용 적용
+        // 이는 사용자가 이미 추가 비용을 포함한 값을 입력했을 가능성을 고려
+        if (numericValue >= 205) {
+          finalValue = numericValue + 1 + 4.8; // 포장 인건비 + 박스비용 추가
+          console.log(`💰 [LogisticPayment] 9월 16일 이후 배송비 자동 추가: ${numericValue} → ${finalValue} (포장인건비 +1, 박스비용 +4.8)`);
+        } else {
+          // 205 미만인 경우는 사용자가 순수 물류비만 입력한 것으로 간주하고 추가 비용 적용
+          finalValue = numericValue + 1 + 4.8;
+          console.log(`💰 [LogisticPayment] 9월 16일 이후 배송비 자동 추가 (기본값 미만): ${numericValue} → ${finalValue} (포장인건비 +1, 박스비용 +4.8)`);
+        }
+      } else {
+        console.log(`💰 [LogisticPayment] 배송비 변경: ${value} → ${numericValue} (숫자 변환)`);
+      }
+      
+      updatedData[index] = { ...updatedData[index], [field]: finalValue };
     } else {
       updatedData[index] = { ...updatedData[index], [field]: value };
     }
@@ -500,7 +517,7 @@ const LogisticPayment = () => {
               total_repeats: actualBoxCount,
               barcode_number: savedItem ? savedItem.barcode_number : '',
               tracking_number: savedItem ? savedItem.tracking_number : '',
-              shipping_cost: savedItem ? parseFloat(savedItem.logistic_fee) || 205 : 205, // 기본값 205로 설정
+              shipping_cost: savedItem ? parseFloat(savedItem.logistic_fee) || (selectedDate >= '2024-09-16' ? 210.8 : 205) : (selectedDate >= '2024-09-16' ? 210.8 : 205), // 9월 16일 이후: 205 + 1(포장인건비) + 4.8(박스비용) = 210.8, 이전: 205
               payment_status: savedItem ? (savedItem.is_paid ? 'paid' : 'unpaid') : 'unpaid',
               description: savedItem ? savedItem.description : '',
               is_arrived: savedItem ? savedItem.is_arrived || false : false, // is_arrived 추가
@@ -962,7 +979,7 @@ const LogisticPayment = () => {
                         value={item.shipping_cost || ''}
                         onChange={(e) => handleDataChange(index, 'shipping_cost', parseFloat(e.target.value) || 0)}
                         className="w-full px-2 py-1 text-sm border border-gray-300 rounded-l focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                        placeholder="205.00"
+                        placeholder={selectedDate >= '2024-09-16' ? "210.80" : "205.00"}
                       />
                       <span className="px-2 py-1 text-sm text-gray-600 bg-gray-100 border border-l-0 border-gray-300 rounded-r">
                         CNY
