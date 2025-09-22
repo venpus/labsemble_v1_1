@@ -1,9 +1,12 @@
 import React, { useState } from 'react';
-import { Truck, ChevronDown, ChevronRight, CreditCard, Save, List } from 'lucide-react';
+import { Truck, ChevronDown, ChevronRight, CreditCard, Save, List, Package, DollarSign, Plus } from 'lucide-react';
 import AdvancePaymentDetails from './AdvancePaymentDetails';
 import BalancePaymentDetails from './BalancePaymentDetails';
 import ShippingPaymentDetails from './ShippingPaymentDetails';
 import PaymentRequestList from './PaymentRequestList';
+import ProjectPaymentRequestList from './ProjectPaymentRequestList';
+import ShippingPaymentRequestList from './ShippingPaymentRequestList';
+import CreatePaymentRequest from './CreatePaymentRequest';
 
 const FinancePaymentSchedule = ({ 
   advancePaymentSchedule = 0,
@@ -20,6 +23,9 @@ const FinancePaymentSchedule = ({
   const [showShippingDetails, setShowShippingDetails] = useState(false);
   const [showAllDetails, setShowAllDetails] = useState(false);
   const [showPaymentRequests, setShowPaymentRequests] = useState(false);
+  const [showProjectPaymentRequests, setShowProjectPaymentRequests] = useState(false);
+  const [showShippingPaymentRequests, setShowShippingPaymentRequests] = useState(false);
+  const [showCreatePaymentRequest, setShowCreatePaymentRequest] = useState(false);
   
   // 상세 데이터 상태
   const [advancePaymentData, setAdvancePaymentData] = useState([]);
@@ -145,9 +151,69 @@ const FinancePaymentSchedule = ({
         <div className="flex items-center justify-between">
           <h3 className="text-lg font-semibold text-gray-900">금일까지 예정 지급 항목</h3>
           <div className="flex items-center space-x-3">
-            {/* 지급 요청 목록 버튼 */}
+            {/* 새 지급 요청 생성 버튼 */}
             <button
-              onClick={() => setShowPaymentRequests(!showPaymentRequests)}
+              onClick={() => setShowCreatePaymentRequest(true)}
+              disabled={dataLoading}
+              className={`inline-flex items-center px-4 py-2 text-sm font-medium rounded-lg transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 ${
+                dataLoading
+                  ? 'bg-gray-400 text-gray-200 cursor-not-allowed'
+                  : 'bg-green-600 hover:bg-green-700 text-white focus:ring-green-500'
+              }`}
+            >
+              <Plus className="w-4 h-4 mr-2" />
+              새 지급 요청 생성
+            </button>
+            {/* 프로젝트 지급 요청 버튼 (선금 + 잔금) */}
+            <button
+              onClick={() => {
+                setShowProjectPaymentRequests(!showProjectPaymentRequests);
+                if (showShippingPaymentRequests) setShowShippingPaymentRequests(false);
+                if (showPaymentRequests) setShowPaymentRequests(false);
+                if (showCreatePaymentRequest) setShowCreatePaymentRequest(false);
+              }}
+              disabled={dataLoading}
+              className={`inline-flex items-center px-4 py-2 text-sm font-medium rounded-lg transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 ${
+                dataLoading
+                  ? 'bg-gray-400 text-gray-200 cursor-not-allowed'
+                  : showProjectPaymentRequests
+                    ? 'bg-blue-600 hover:bg-blue-700 text-white focus:ring-blue-500'
+                    : 'bg-blue-600 hover:bg-blue-700 text-white focus:ring-blue-500'
+              }`}
+            >
+              <Package className="w-4 h-4 mr-2" />
+              {showProjectPaymentRequests ? '프로젝트 요청 숨기기' : '프로젝트 지급 요청'}
+            </button>
+
+            {/* 배송비 지급 요청 버튼 */}
+            <button
+              onClick={() => {
+                setShowShippingPaymentRequests(!showShippingPaymentRequests);
+                if (showProjectPaymentRequests) setShowProjectPaymentRequests(false);
+                if (showPaymentRequests) setShowPaymentRequests(false);
+                if (showCreatePaymentRequest) setShowCreatePaymentRequest(false);
+              }}
+              disabled={dataLoading}
+              className={`inline-flex items-center px-4 py-2 text-sm font-medium rounded-lg transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 ${
+                dataLoading
+                  ? 'bg-gray-400 text-gray-200 cursor-not-allowed'
+                  : showShippingPaymentRequests
+                    ? 'bg-orange-600 hover:bg-orange-700 text-white focus:ring-orange-500'
+                    : 'bg-orange-600 hover:bg-orange-700 text-white focus:ring-orange-500'
+              }`}
+            >
+              <Truck className="w-4 h-4 mr-2" />
+              {showShippingPaymentRequests ? '배송비 요청 숨기기' : '배송비 지급 요청'}
+            </button>
+
+            {/* 통합 지급 요청 목록 버튼 (기존) */}
+            <button
+              onClick={() => {
+                setShowPaymentRequests(!showPaymentRequests);
+                if (showProjectPaymentRequests) setShowProjectPaymentRequests(false);
+                if (showShippingPaymentRequests) setShowShippingPaymentRequests(false);
+                if (showCreatePaymentRequest) setShowCreatePaymentRequest(false);
+              }}
               disabled={dataLoading}
               className={`inline-flex items-center px-4 py-2 text-sm font-medium rounded-lg transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 ${
                 dataLoading
@@ -158,7 +224,7 @@ const FinancePaymentSchedule = ({
               }`}
             >
               <List className="w-4 h-4 mr-2" />
-              {showPaymentRequests ? '요청목록 숨기기' : '지급요청 목록'}
+              {showPaymentRequests ? '통합 요청목록 숨기기' : '통합 지급요청 목록'}
             </button>
 
             {/* 상세 숨기기 상태일 때만 항목저장 버튼 표시 */}
@@ -367,7 +433,21 @@ const FinancePaymentSchedule = ({
         </div>
       )}
       
-      {/* 지급 요청 목록 표시 */}
+      {/* 프로젝트 지급 요청 목록 표시 */}
+      {showProjectPaymentRequests && (
+        <div className="p-6">
+          <ProjectPaymentRequestList />
+        </div>
+      )}
+
+      {/* 배송비 지급 요청 목록 표시 */}
+      {showShippingPaymentRequests && (
+        <div className="p-6">
+          <ShippingPaymentRequestList />
+        </div>
+      )}
+
+      {/* 통합 지급 요청 목록 표시 (기존) */}
       {showPaymentRequests && (
         <div className="p-6">
           <PaymentRequestList />
@@ -380,6 +460,19 @@ const FinancePaymentSchedule = ({
         {showBalanceDetails && <BalancePaymentDetails data={balancePaymentData} />}
         {showShippingDetails && <ShippingPaymentDetails data={shippingPaymentData} />}
       </div>
+
+      {/* 새 지급 요청 생성 모달 */}
+      {showCreatePaymentRequest && (
+        <CreatePaymentRequest
+          onClose={() => setShowCreatePaymentRequest(false)}
+          onSuccess={() => {
+            // 성공 시 모든 목록 새로고침
+            setShowCreatePaymentRequest(false);
+            // 부모 컴포넌트에 새로고침 이벤트 전달
+            window.dispatchEvent(new CustomEvent('refreshPaymentSchedule'));
+          }}
+        />
+      )}
     </div>
   );
 };

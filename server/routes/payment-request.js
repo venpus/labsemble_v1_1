@@ -699,4 +699,561 @@ router.post('/complete-shipping-payment', auth, async (req, res) => {
   }
 });
 
+// 프로젝트 지급 요청 목록 조회 (선금 + 잔금만)
+router.get('/project-payment-requests-by-date', auth, async (req, res) => {
+  const connection = await pool.getConnection();
+  
+  try {
+    // 선금과 잔금만 조회
+    const [projectRequests] = await connection.execute(`
+      SELECT 
+        DATE(pr.request_date) as request_date,
+        pr.payment_type,
+        COUNT(*) as count,
+        SUM(pr.amount) as total_amount,
+        GROUP_CONCAT(
+          CONCAT(p.project_name, ' (', pr.amount, ' CNY', 
+                 CASE WHEN pr.payment_type = 'balance' AND pr.fee_rate IS NOT NULL 
+                      THEN CONCAT(', 수수료율: ', pr.fee_rate, '%') 
+                      ELSE '' END
+                ) 
+          ORDER BY pr.created_at ASC 
+          SEPARATOR '; '
+        ) as details
+      FROM mj_payment_requests pr
+      LEFT JOIN mj_project p ON pr.project_id = p.id
+      WHERE pr.status = 'pending'
+        AND pr.payment_type IN ('advance', 'balance')
+      GROUP BY DATE(pr.request_date), pr.payment_type
+      ORDER BY request_date ASC, pr.payment_type
+    `);
+    
+    // 날짜별로 그룹화
+    const groupedByDate = {};
+    projectRequests.forEach(request => {
+      const date = request.request_date;
+      if (!groupedByDate[date]) {
+        groupedByDate[date] = {
+          date: date,
+          advance: null,
+          balance: null
+        };
+      }
+      
+      if (request.payment_type === 'advance') {
+        groupedByDate[date].advance = {
+          count: request.count,
+          total_amount: request.total_amount,
+          details: request.details
+        };
+      } else if (request.payment_type === 'balance') {
+        groupedByDate[date].balance = {
+          count: request.count,
+          total_amount: request.total_amount,
+          details: request.details
+        };
+      }
+    });
+    
+    const sortedRequests = Object.values(groupedByDate).sort((a, b) => 
+      new Date(a.date) - new Date(b.date)
+    );
+    
+    res.json({
+      success: true,
+      data: sortedRequests
+    });
+    
+  } catch (error) {
+    console.error('프로젝트 지급 요청 조회 오류:', error);
+    res.status(500).json({
+      success: false,
+      message: '프로젝트 지급 요청 조회 중 오류가 발생했습니다.',
+      error: error.message
+    });
+  } finally {
+    connection.release();
+  }
+});
+
+// 배송비 지급 요청 목록 조회 (배송비만)
+router.get('/shipping-payment-requests-by-date', auth, async (req, res) => {
+  const connection = await pool.getConnection();
+  
+  try {
+    const [shippingRequests] = await connection.execute(`
+      SELECT 
+        DATE(request_date) as request_date,
+        'shipping' as payment_type,
+        COUNT(*) as count,
+        SUM(total_amount) as total_amount,
+        GROUP_CONCAT(
+          CONCAT('출고일: ', pl_date, ' (', total_boxes, '박스, ', total_amount, ' CNY)')
+          ORDER BY request_date ASC 
+          SEPARATOR '; '
+        ) as details
+      FROM mj_shipping_payment_requests
+      WHERE status = 'pending'
+      GROUP BY DATE(request_date)
+      ORDER BY request_date ASC
+    `);
+    
+    const sortedRequests = shippingRequests.map(request => ({
+      date: request.request_date,
+      shipping: {
+        count: request.count,
+        total_amount: request.total_amount,
+        details: request.details
+      }
+    }));
+    
+    res.json({
+      success: true,
+      data: sortedRequests
+    });
+    
+  } catch (error) {
+    console.error('배송비 지급 요청 조회 오류:', error);
+    res.status(500).json({
+      success: false,
+      message: '배송비 지급 요청 조회 중 오류가 발생했습니다.',
+      error: error.message
+    });
+  } finally {
+    connection.release();
+  }
+});
+
+// 프로젝트 지급 요청 상세 데이터 조회 (선금 + 잔금)
+router.get('/project-payment-request-details/:date', auth, async (req, res) => {
+  const connection = await pool.getConnection();
+  const { date } = req.params;
+  
+  try {
+    // 선금 지급 요청 상세 조회
+    const [advanceRequests] = await connection.execute(`
+      SELECT 
+        pr.id,
+        pr.project_id,
+        p.project_name,
+        pr.amount,
+        pr.fee_rate,
+        pr.request_date,
+        pr.status,
+        p.quantity,
+        p.unit_price,
+        p.created_at,
+        (SELECT file_name FROM mj_project_images WHERE project_id = p.id ORDER BY id ASC LIMIT 1) as representative_image
+      FROM mj_payment_requests pr
+      LEFT JOIN mj_project p ON pr.project_id = p.id
+      WHERE pr.status = 'pending' 
+        AND pr.payment_type = 'advance'
+        AND DATE(pr.request_date) = ?
+      ORDER BY pr.created_at ASC
+    `, [date]);
+    
+    // 잔금 지급 요청 상세 조회
+    const [balanceRequests] = await connection.execute(`
+      SELECT 
+        pr.id,
+        pr.project_id,
+        p.project_name,
+        pr.amount,
+        pr.fee_rate,
+        pr.request_date,
+        pr.status,
+        p.quantity,
+        p.unit_price,
+        p.created_at,
+        (SELECT file_name FROM mj_project_images WHERE project_id = p.id ORDER BY id ASC LIMIT 1) as representative_image
+      FROM mj_payment_requests pr
+      LEFT JOIN mj_project p ON pr.project_id = p.id
+      WHERE pr.status = 'pending' 
+        AND pr.payment_type = 'balance'
+        AND DATE(pr.request_date) = ?
+      ORDER BY pr.created_at ASC
+    `, [date]);
+    
+    res.json({
+      success: true,
+      data: {
+        advance: advanceRequests,
+        balance: balanceRequests
+      }
+    });
+  } catch (error) {
+    console.error('프로젝트 지급 요청 상세 조회 오류:', error);
+    res.status(500).json({
+      success: false,
+      message: '프로젝트 지급 요청 상세 조회 중 오류가 발생했습니다.',
+      error: error.message
+    });
+  } finally {
+    connection.release();
+  }
+});
+
+// 배송비 지급 요청 상세 데이터 조회
+router.get('/shipping-payment-request-details/:date', auth, async (req, res) => {
+  const connection = await pool.getConnection();
+  const { date } = req.params;
+  
+  try {
+    // 배송비 지급 요청 상세 조회
+    const [shippingRequests] = await connection.execute(`
+      SELECT 
+        id,
+        pl_date,
+        total_boxes,
+        total_amount,
+        packing_codes,
+        logistic_companies,
+        request_date,
+        status
+      FROM mj_shipping_payment_requests
+      WHERE status = 'pending' 
+        AND DATE(request_date) = ?
+      ORDER BY request_date ASC
+    `, [date]);
+    
+    res.json({
+      success: true,
+      data: {
+        shipping: shippingRequests
+      }
+    });
+  } catch (error) {
+    console.error('배송비 지급 요청 상세 조회 오류:', error);
+    res.status(500).json({
+      success: false,
+      message: '배송비 지급 요청 상세 조회 중 오류가 발생했습니다.',
+      error: error.message
+    });
+  } finally {
+    connection.release();
+  }
+});
+
+// 지급 요청 생성 (선금/잔금/배송비)
+router.post('/save-payment-requests', auth, async (req, res) => {
+  const startTime = Date.now();
+  
+  try {
+    const { advancePayments, balancePayments, shippingPayments } = req.body;
+    
+    // 입력 데이터 검증
+    if (!advancePayments && !balancePayments && !shippingPayments) {
+      return res.status(400).json({
+        success: false,
+        message: '선택된 지급 항목이 없습니다.'
+      });
+    }
+
+    const connection = await pool.getConnection();
+    
+    try {
+      await connection.beginTransaction();
+      
+      const results = {
+        advanceCount: 0,
+        balanceCount: 0,
+        shippingCount: 0,
+        errors: []
+      };
+      
+      // 1. 선금 지급 요청 생성
+      if (advancePayments && advancePayments.length > 0) {
+        for (const payment of advancePayments) {
+          try {
+            await connection.execute(`
+              INSERT INTO mj_payment_requests (
+                project_id, 
+                payment_type, 
+                amount, 
+                request_date, 
+                status, 
+                created_at, 
+                updated_at
+              ) VALUES (?, 'advance', ?, CURDATE(), 'pending', NOW(), NOW())
+            `, [payment.project_id, payment.amount]);
+            
+            results.advanceCount++;
+          } catch (error) {
+            console.error(`선금 요청 생성 오류 (프로젝트 ${payment.project_id}):`, error);
+            results.errors.push(`선금 요청 생성 실패 (프로젝트 ${payment.project_id}): ${error.message}`);
+          }
+        }
+      }
+      
+      // 2. 잔금 지급 요청 생성
+      if (balancePayments && balancePayments.length > 0) {
+        for (const payment of balancePayments) {
+          try {
+            await connection.execute(`
+              INSERT INTO mj_payment_requests (
+                project_id, 
+                payment_type, 
+                amount, 
+                fee_rate,
+                request_date, 
+                status, 
+                created_at, 
+                updated_at
+              ) VALUES (?, 'balance', ?, ?, CURDATE(), 'pending', NOW(), NOW())
+            `, [payment.project_id, payment.amount, payment.fee_rate || null]);
+            
+            results.balanceCount++;
+          } catch (error) {
+            console.error(`잔금 요청 생성 오류 (프로젝트 ${payment.project_id}):`, error);
+            results.errors.push(`잔금 요청 생성 실패 (프로젝트 ${payment.project_id}): ${error.message}`);
+          }
+        }
+      }
+      
+      // 3. 배송비 지급 요청 생성
+      if (shippingPayments && shippingPayments.length > 0) {
+        for (const payment of shippingPayments) {
+          try {
+            await connection.execute(`
+              INSERT INTO mj_shipping_payment_requests (
+                pl_date,
+                total_boxes,
+                total_amount,
+                packing_codes,
+                logistic_companies,
+                request_date,
+                status,
+                created_at,
+                updated_at
+              ) VALUES (?, ?, ?, ?, ?, CURDATE(), 'pending', NOW(), NOW())
+            `, [
+              payment.pl_date,
+              payment.box_count,
+              payment.total_logistic_fee,
+              payment.packing_codes,
+              payment.logistic_companies
+            ]);
+            
+            results.shippingCount++;
+          } catch (error) {
+            console.error(`배송비 요청 생성 오류:`, error);
+            results.errors.push(`배송비 요청 생성 실패: ${error.message}`);
+          }
+        }
+      }
+      
+      // 4. 트랜잭션 커밋
+      await connection.commit();
+      
+      const processingTime = Date.now() - startTime;
+      const totalCreated = results.advanceCount + results.balanceCount + results.shippingCount;
+      
+      console.log(`✅ [PaymentRequest] 지급 요청 생성 완료: 총 ${totalCreated}개 (선금: ${results.advanceCount}, 잔금: ${results.balanceCount}, 배송비: ${results.shippingCount}) (${processingTime}ms)`);
+      
+      res.json({
+        success: true,
+        message: `지급 요청이 성공적으로 생성되었습니다. (총 ${totalCreated}개)`,
+        data: results,
+        processingTime
+      });
+      
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
+    
+  } catch (error) {
+    const processingTime = Date.now() - startTime;
+    console.error('❌ [PaymentRequest] 지급 요청 생성 오류:', error);
+    
+    res.status(500).json({
+      success: false,
+      message: '지급 요청 생성 중 오류가 발생했습니다.',
+      error: error.message,
+      processingTime
+    });
+  }
+});
+
+// 프로젝트 지급완료 처리 (선금 + 잔금 통합)
+router.post('/complete-project-payment', auth, async (req, res) => {
+  const startTime = Date.now();
+  
+  try {
+    const { date, projectIds, paymentDate } = req.body;
+    
+    // 1. 입력 데이터 검증
+    if (!date || !Array.isArray(projectIds) || projectIds.length === 0 || !paymentDate) {
+      return res.status(400).json({
+        success: false,
+        message: '필수 데이터가 누락되었습니다.'
+      });
+    }
+
+    const connection = await pool.getConnection();
+    
+    try {
+      await connection.beginTransaction();
+      
+      const completedProjects = [];
+      const failedProjects = [];
+      
+      // 2. 각 프로젝트별로 지급완료 처리
+      for (const projectId of projectIds) {
+        try {
+          // 2-1. 프로젝트 존재 여부 확인
+          const [projectRows] = await connection.execute(
+            'SELECT id, project_name FROM mj_project WHERE id = ?',
+            [projectId]
+          );
+          
+          if (projectRows.length === 0) {
+            failedProjects.push({ projectId, reason: '프로젝트를 찾을 수 없습니다.' });
+            continue;
+          }
+          
+          const project = projectRows[0];
+          
+          // 2-2. 해당 프로젝트의 지급 요청 타입 확인 (선금 또는 잔금)
+          const [paymentRequestRows] = await connection.execute(
+            'SELECT payment_type FROM mj_payment_requests WHERE project_id = ? AND status = "pending"',
+            [projectId]
+          );
+          
+          // 2-3. mj_project_payments 테이블 업데이트 또는 생성
+          const [existingPayment] = await connection.execute(
+            'SELECT id FROM mj_project_payments WHERE project_id = ?',
+            [projectId]
+          );
+          
+          if (existingPayment.length > 0) {
+            // 기존 레코드 업데이트
+            for (const request of paymentRequestRows) {
+              if (request.payment_type === 'advance') {
+                await connection.execute(`
+                  UPDATE mj_project_payments 
+                  SET 
+                    payment_status = JSON_SET(COALESCE(payment_status, '{}'), '$.advance', true),
+                    payment_dates = JSON_SET(COALESCE(payment_dates, '{}'), '$.advance', ?),
+                    updated_at = CURRENT_TIMESTAMP
+                  WHERE project_id = ?
+                `, [paymentDate, projectId]);
+              } else if (request.payment_type === 'balance') {
+                await connection.execute(`
+                  UPDATE mj_project_payments 
+                  SET 
+                    payment_status = JSON_SET(COALESCE(payment_status, '{}'), '$.balance', true),
+                    payment_dates = JSON_SET(COALESCE(payment_dates, '{}'), '$.balance', ?),
+                    updated_at = CURRENT_TIMESTAMP
+                  WHERE project_id = ?
+                `, [paymentDate, projectId]);
+              }
+            }
+          } else {
+            // 새 레코드 생성
+            const advanceStatus = paymentRequestRows.some(r => r.payment_type === 'advance');
+            const balanceStatus = paymentRequestRows.some(r => r.payment_type === 'balance');
+            
+            await connection.execute(`
+              INSERT INTO mj_project_payments (project_id, payment_status, payment_dates, payment_amounts)
+              VALUES (?, 
+                JSON_OBJECT('advance', ?, 'balance', ?),
+                JSON_OBJECT('advance', ?, 'balance', ?),
+                JSON_OBJECT('advance', 0, 'balance', 0)
+              )
+            `, [
+              projectId, 
+              advanceStatus, 
+              balanceStatus,
+              advanceStatus ? paymentDate : null,
+              balanceStatus ? paymentDate : null
+            ]);
+          }
+          
+          // 2-4. mj_project 테이블도 업데이트 (호환성 유지)
+          for (const request of paymentRequestRows) {
+            if (request.payment_type === 'advance') {
+              await connection.execute(`
+                UPDATE mj_project 
+                SET 
+                  payment_status = JSON_SET(COALESCE(payment_status, '{}'), '$.advance', true),
+                  payment_dates = JSON_SET(COALESCE(payment_dates, '{}'), '$.advance', ?),
+                  updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+              `, [paymentDate, projectId]);
+            } else if (request.payment_type === 'balance') {
+              await connection.execute(`
+                UPDATE mj_project 
+                SET 
+                  payment_status = JSON_SET(COALESCE(payment_status, '{}'), '$.balance', true),
+                  payment_dates = JSON_SET(COALESCE(payment_dates, '{}'), '$.balance', ?),
+                  updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+              `, [paymentDate, projectId]);
+            }
+          }
+          
+          // 2-5. 지급 요청 상태를 completed로 업데이트
+          await connection.execute(`
+            UPDATE mj_payment_requests 
+            SET 
+              status = 'completed',
+              updated_at = CURRENT_TIMESTAMP
+            WHERE project_id = ? AND status = 'pending'
+          `, [projectId]);
+          
+          completedProjects.push({
+            projectId: project.id,
+            projectName: project.project_name
+          });
+          
+        } catch (projectError) {
+          console.error(`프로젝트 ${projectId} 처리 오류:`, projectError);
+          failedProjects.push({ 
+            projectId, 
+            reason: `처리 중 오류 발생: ${projectError.message}` 
+          });
+        }
+      }
+      
+      // 3. 트랜잭션 커밋
+      await connection.commit();
+      
+      const processingTime = Date.now() - startTime;
+      console.log(`✅ [PaymentRequest] 프로젝트 지급완료 처리 완료: ${completedProjects.length}개 성공, ${failedProjects.length}개 실패 (${processingTime}ms)`);
+      
+      res.json({
+        success: true,
+        message: '프로젝트 지급완료 처리가 완료되었습니다.',
+        data: {
+          completedCount: completedProjects.length,
+          failedCount: failedProjects.length,
+          completedProjects,
+          failedProjects
+        },
+        processingTime
+      });
+      
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
+    
+  } catch (error) {
+    const processingTime = Date.now() - startTime;
+    console.error('❌ [PaymentRequest] 프로젝트 지급완료 처리 오류:', error);
+    
+    res.status(500).json({
+      success: false,
+      message: '프로젝트 지급완료 처리 중 오류가 발생했습니다.',
+      error: error.message,
+      processingTime
+    });
+  }
+});
+
 module.exports = router;
