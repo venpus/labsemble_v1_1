@@ -29,51 +29,69 @@ const LogisticPayment = () => {
   // 저장 상태
   const [saving, setSaving] = useState(false);
 
-  // 데이터 변경 감지
+  // 입력 중인 값들을 임시로 저장하는 상태
+  const [tempInputValues, setTempInputValues] = useState({});
+
+  // 데이터 변경 감지 (즉시 업데이트)
   const handleDataChange = (index, field, value) => {
     const updatedData = [...paymentData];
-    
-    // 배송비는 숫자로 변환하여 저장
-    if (field === 'shipping_cost') {
-      const numericValue = parseFloat(value) || 0;
-      
-      // 9월 16일 이후인 경우 박스비용(4.8)과 포장 인건비(1)를 자동으로 추가
-      let finalValue = numericValue;
-      if (selectedDate >= '2024-09-16' && numericValue > 0) {
-        // 사용자가 입력한 값이 기본 물류비(205) 이상인 경우에만 추가 비용 적용
-        // 이는 사용자가 이미 추가 비용을 포함한 값을 입력했을 가능성을 고려
-        if (numericValue >= 205) {
-          finalValue = numericValue + 1 + 4.8; // 포장 인건비 + 박스비용 추가
-          console.log(`💰 [LogisticPayment] 9월 16일 이후 배송비 자동 추가: ${numericValue} → ${finalValue} (포장인건비 +1, 박스비용 +4.8)`);
-        } else {
-          // 205 미만인 경우는 사용자가 순수 물류비만 입력한 것으로 간주하고 추가 비용 적용
-          finalValue = numericValue + 1 + 4.8;
-          console.log(`💰 [LogisticPayment] 9월 16일 이후 배송비 자동 추가 (기본값 미만): ${numericValue} → ${finalValue} (포장인건비 +1, 박스비용 +4.8)`);
-        }
-      } else {
-        console.log(`💰 [LogisticPayment] 배송비 변경: ${value} → ${numericValue} (숫자 변환)`);
-      }
-      
-      updatedData[index] = { ...updatedData[index], [field]: finalValue };
-    } else {
-      updatedData[index] = { ...updatedData[index], [field]: value };
-    }
-    
+    updatedData[index] = { ...updatedData[index], [field]: value };
     setPaymentData(updatedData);
     
-    // 요약 정보 업데이트
-    if (field === 'shipping_cost' || field === 'payment_status') {
-      const newTotalShippingCost = updatedData.reduce((sum, item) => sum + (parseFloat(item.shipping_cost) || 0), 0);
+    // 요약 정보 업데이트 (shipping_cost가 아닌 경우에만)
+    if (field !== 'shipping_cost' && (field === 'payment_status')) {
       const newPaidCount = updatedData.filter(item => item.payment_status === 'paid').length;
       const newUnpaidCount = updatedData.filter(item => item.payment_status === 'unpaid').length;
       
       setSummary(prev => ({
         ...prev,
-        totalShippingCost: newTotalShippingCost,
         paidCount: newPaidCount,
         unpaidCount: newUnpaidCount
       }));
     }
+  };
+
+  // 배송비 입력 완료 시 처리 (blur 이벤트)
+  const handleShippingCostBlur = (index, value) => {
+    const numericValue = parseFloat(value) || 0;
+    
+    // 9월 16일 이후인 경우 박스비용(4.8)과 포장 인건비(1)를 자동으로 추가
+    let finalValue = numericValue;
+    if (selectedDate >= '2024-09-16' && numericValue > 0) {
+      // 사용자가 입력한 값이 기본 물류비(205) 이상인 경우에만 추가 비용 적용
+      // 이는 사용자가 이미 추가 비용을 포함한 값을 입력했을 가능성을 고려
+      if (numericValue >= 205) {
+        finalValue = numericValue + 1 + 4.8; // 포장 인건비 + 박스비용 추가
+        console.log(`💰 [LogisticPayment] 9월 16일 이후 배송비 자동 추가: ${numericValue} → ${finalValue} (포장인건비 +1, 박스비용 +4.8)`);
+      } else {
+        // 205 미만인 경우는 사용자가 순수 물류비만 입력한 것으로 간주하고 추가 비용 적용
+        finalValue = numericValue + 1 + 4.8;
+        console.log(`💰 [LogisticPayment] 9월 16일 이후 배송비 자동 추가 (기본값 미만): ${numericValue} → ${finalValue} (포장인건비 +1, 박스비용 +4.8)`);
+      }
+    } else {
+      console.log(`💰 [LogisticPayment] 배송비 변경: ${value} → ${numericValue} (숫자 변환)`);
+    }
+    
+    // 최종 값으로 업데이트
+    const updatedData = [...paymentData];
+    updatedData[index] = { ...updatedData[index], shipping_cost: finalValue };
+    setPaymentData(updatedData);
+    
+    // 요약 정보 업데이트
+    const newTotalShippingCost = updatedData.reduce((sum, item) => sum + (parseFloat(item.shipping_cost) || 0), 0);
+    setSummary(prev => ({
+      ...prev,
+      totalShippingCost: newTotalShippingCost
+    }));
+  };
+
+  // 배송비 입력 중 처리 (onChange 이벤트)
+  const handleShippingCostChange = (index, value) => {
+    // 임시 입력 값만 업데이트 (리렌더링 방지)
+    setTempInputValues(prev => ({
+      ...prev,
+      [`${index}_shipping_cost`]: value
+    }));
   };
 
   // 한국도착 체크박스 변경 처리 (자동 저장)
@@ -976,8 +994,30 @@ const LogisticPayment = () => {
                       <input
                         type="number"
                         step="0.01"
-                        value={item.shipping_cost || ''}
-                        onChange={(e) => handleDataChange(index, 'shipping_cost', parseFloat(e.target.value) || 0)}
+                        value={tempInputValues[`${index}_shipping_cost`] !== undefined ? tempInputValues[`${index}_shipping_cost`] : (item.shipping_cost || '')}
+                        onChange={(e) => handleShippingCostChange(index, e.target.value)}
+                        onBlur={(e) => {
+                          handleShippingCostBlur(index, e.target.value);
+                          // 임시 입력 값 제거
+                          setTempInputValues(prev => {
+                            const newTemp = { ...prev };
+                            delete newTemp[`${index}_shipping_cost`];
+                            return newTemp;
+                          });
+                        }}
+                        onKeyPress={(e) => {
+                          if (e.key === 'Enter') {
+                            handleShippingCostBlur(index, e.target.value);
+                            // 임시 입력 값 제거
+                            setTempInputValues(prev => {
+                              const newTemp = { ...prev };
+                              delete newTemp[`${index}_shipping_cost`];
+                              return newTemp;
+                            });
+                            // 포커스 제거
+                            e.target.blur();
+                          }
+                        }}
                         className="w-full px-2 py-1 text-sm border border-gray-300 rounded-l focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                         placeholder={selectedDate >= '2024-09-16' ? "210.80" : "205.00"}
                       />
