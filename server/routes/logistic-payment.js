@@ -507,9 +507,10 @@ router.get('/shipping-payment-details', auth, async (req, res) => {
         pl_date ASC
     `);
     
-    const shippingPayments = rows.map(row => ({
+    const shippingPayments = rows.map((row, index) => ({
+      id: `shipping_${row.pl_date || 'no_date'}_${index}`, // 고유 ID 생성
       pl_date: row.pl_date,
-      box_count: row.box_count,
+      total_boxes: row.box_count, // box_count를 total_boxes로 변경
       total_logistic_fee: row.total_logistic_fee,
       packing_codes: row.packing_codes,
       logistic_companies: row.logistic_companies

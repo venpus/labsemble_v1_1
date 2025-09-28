@@ -127,6 +127,10 @@ const PaymentRequestList = () => {
     }).format(amount);
   };
 
+  const formatCount = (count) => {
+    return Number(count).toString();
+  };
+
   const handlePrint = async (date) => {
     const request = paymentRequests.find(r => r.date === date);
     if (!request) return;
@@ -156,9 +160,10 @@ const PaymentRequestList = () => {
   // 배송비 지급완료 처리 함수
   const handleCompleteShippingPayment = async (date) => {
     try {
-      // 1. 해당 날짜의 배송비 요청 ID 수집
+      // 1. 해당 날짜의 배송비 요청 ID 수집 (pending 상태만)
       const shippingRequests = detailData[date]?.shipping || [];
-      const requestIds = shippingRequests.map(request => request.id);
+      const pendingRequests = shippingRequests.filter(request => request.status === 'pending');
+      const requestIds = pendingRequests.map(request => request.id);
       
       if (requestIds.length === 0) {
         alert('지급완료할 배송비 요청이 없습니다.');
@@ -169,7 +174,7 @@ const PaymentRequestList = () => {
       const confirmed = window.confirm(
         `${date} 날짜의 배송비 지급을 완료 처리하시겠습니까?\n` +
         `처리할 요청: ${requestIds.length}개\n\n` +
-        `요청 목록:\n${shippingRequests.map(r => `- ${r.packing_codes} (${r.total_amount} CNY)`).join('\n')}`
+        `요청 목록:\n${pendingRequests.map(r => `- ${r.packing_codes} (${r.total_amount} CNY)`).join('\n')}`
       );
       
       if (!confirmed) return;
@@ -458,19 +463,24 @@ const PaymentRequestList = () => {
                       {request.advance && (
                         <span className="flex items-center">
                           <DollarSign className="w-4 h-4 mr-1 text-red-500" />
-                          선금 {request.advance.count}건 ({formatAmount(request.advance.total_amount)})
+                          선금 {formatCount(request.advance.count)}건 ({formatAmount(request.advance.total_amount)})
                         </span>
                       )}
                       {request.balance && (
                         <span className="flex items-center">
                           <DollarSign className="w-4 h-4 mr-1 text-blue-500" />
-                          잔금 {request.balance.count}건 ({formatAmount(request.balance.total_amount)})
+                          잔금 {formatCount(request.balance.count)}건 ({formatAmount(request.balance.total_amount)})
                         </span>
                       )}
                       {request.shipping && (
                         <span className="flex items-center">
                           <Truck className="w-4 h-4 mr-1 text-orange-500" />
-                          배송비 {request.shipping.count}건 ({formatAmount(request.shipping.total_amount)})
+                          배송비 {formatCount(request.shipping.total_count || request.shipping.count)}건 ({formatAmount(request.shipping.total_amount_all || request.shipping.total_amount)})
+                          {request.shipping.completed_count > 0 && (
+                            <span className="ml-2 text-xs text-green-600">
+                              (완료: {formatCount(request.shipping.completed_count)}건)
+                            </span>
+                          )}
                         </span>
                       )}
                     </div>
@@ -511,7 +521,7 @@ const PaymentRequestList = () => {
                             <DollarSign className="w-5 h-5 mr-2" />
                             선금 지급 요청
                             <span className="ml-2 text-sm font-normal text-red-600">
-                              ({request.advance.count}건)
+                              ({formatCount(request.advance.count)}건)
                             </span>
                           </h4>
                           <button
@@ -676,7 +686,7 @@ const PaymentRequestList = () => {
                             <DollarSign className="w-5 h-5 mr-2" />
                             잔금 지급 요청
                             <span className="ml-2 text-sm font-normal text-blue-600">
-                              ({request.balance.count}건)
+                              ({formatCount(request.balance.count)}건)
                             </span>
                           </h4>
                           <button
@@ -852,25 +862,37 @@ const PaymentRequestList = () => {
                             <Truck className="w-5 h-5 mr-2" />
                             배송비 지급 요청
                             <span className="ml-2 text-sm font-normal text-orange-600">
-                              ({request.shipping.count}건)
+                              ({formatCount(request.shipping.total_count || request.shipping.count)}건)
                             </span>
                           </h4>
                           <button
                             onClick={() => handleCompleteShippingPayment(request.date)}
-                            disabled={completingShippingPayments.has(request.date) || completedShippingPayments.has(request.date)}
+                            disabled={completingShippingPayments.has(request.date) || (() => {
+                              const shippingRequests = detailData[request.date]?.shipping || [];
+                              const hasPendingRequests = shippingRequests.some(r => r.status === 'pending');
+                              return !hasPendingRequests;
+                            })()}
                             className={`inline-flex items-center px-4 py-2 text-sm font-medium rounded-lg transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 ${
                               completingShippingPayments.has(request.date)
                                 ? 'bg-gray-400 text-gray-200 cursor-not-allowed'
-                                : completedShippingPayments.has(request.date)
-                                  ? 'bg-green-500 text-white cursor-default'
-                                  : 'bg-green-600 hover:bg-green-700 text-white focus:ring-green-500'
+                                : (() => {
+                                    const shippingRequests = detailData[request.date]?.shipping || [];
+                                    const hasPendingRequests = shippingRequests.some(r => r.status === 'pending');
+                                    return !hasPendingRequests
+                                      ? 'bg-green-500 text-white cursor-default'
+                                      : 'bg-green-600 hover:bg-green-700 text-white focus:ring-green-500';
+                                  })()
                             }`}
                             title={
                               completingShippingPayments.has(request.date)
                                 ? '배송비 지급완료 처리 중...'
-                                : completedShippingPayments.has(request.date)
-                                  ? '배송비 지급완료 처리됨'
-                                  : '배송비 지급을 완료 처리합니다'
+                                : (() => {
+                                    const shippingRequests = detailData[request.date]?.shipping || [];
+                                    const hasPendingRequests = shippingRequests.some(r => r.status === 'pending');
+                                    return !hasPendingRequests
+                                      ? '모든 배송비 지급완료 처리됨'
+                                      : '배송비 지급을 완료 처리합니다';
+                                  })()
                             }
                           >
                             {completingShippingPayments.has(request.date) ? (
@@ -878,17 +900,21 @@ const PaymentRequestList = () => {
                                 <Clock className="w-4 h-4 mr-2 animate-spin" />
                                 처리 중...
                               </>
-                            ) : completedShippingPayments.has(request.date) ? (
-                              <>
-                                <CheckCircle className="w-4 h-4 mr-2" />
-                                지급완료됨
-                              </>
-                            ) : (
-                              <>
-                                <Truck className="w-4 h-4 mr-2" />
-                                지급완료
-                              </>
-                            )}
+                            ) : (() => {
+                                const shippingRequests = detailData[request.date]?.shipping || [];
+                                const hasPendingRequests = shippingRequests.some(r => r.status === 'pending');
+                                return !hasPendingRequests ? (
+                                  <>
+                                    <CheckCircle className="w-4 h-4 mr-2" />
+                                    지급완료됨
+                                  </>
+                                ) : (
+                                  <>
+                                    <Truck className="w-4 h-4 mr-2" />
+                                    지급완료
+                                  </>
+                                );
+                              })()}
                           </button>
                         </div>
                       </div>
@@ -926,11 +952,14 @@ const PaymentRequestList = () => {
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                                   물류회사
                                 </th>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                  상태
+                                </th>
                               </tr>
                             </thead>
                             <tbody className="bg-white divide-y divide-gray-200">
                               {(detailData[request.date]?.shipping || []).map((payment, index) => (
-                                <tr key={payment.id || index} className="hover:bg-gray-50">
+                                <tr key={payment.id || index} className={`hover:bg-gray-50 ${payment.status === 'completed' ? 'bg-green-50' : ''}`}>
                                   <td className="px-6 py-4 whitespace-nowrap">
                                     <div className="flex items-center">
                                       <Calendar className="w-4 h-4 text-gray-400 mr-2" />
@@ -943,7 +972,7 @@ const PaymentRequestList = () => {
                                     <div className="flex items-center">
                                       <Package className="w-4 h-4 text-gray-400 mr-2" />
                                       <span className="text-sm font-medium text-gray-900">
-                                        {payment.total_boxes || 0}박스
+                                        {formatCount(payment.total_boxes || 0)}박스
                                       </span>
                                     </div>
                                   </td>
@@ -969,6 +998,21 @@ const PaymentRequestList = () => {
                                       <span className="text-sm text-gray-500">
                                         {payment.logistic_companies || '-'}
                                       </span>
+                                    </div>
+                                  </td>
+                                  <td className="px-6 py-4 whitespace-nowrap">
+                                    <div className="flex items-center">
+                                      {payment.status === 'completed' ? (
+                                        <div className="flex items-center text-green-600">
+                                          <CheckCircle className="w-4 h-4 mr-1" />
+                                          <span className="text-sm font-medium">완료</span>
+                                        </div>
+                                      ) : (
+                                        <div className="flex items-center text-orange-600">
+                                          <Clock className="w-4 h-4 mr-1" />
+                                          <span className="text-sm font-medium">대기</span>
+                                        </div>
+                                      )}
                                     </div>
                                   </td>
                                 </tr>

@@ -156,22 +156,23 @@ router.get('/payment-requests-by-date', auth, async (req, res) => {
       ORDER BY request_date ASC, pr.payment_type
     `);
     
-    // 배송비 지급 요청을 날짜별로 그룹화하여 조회
+    // 배송비 지급 요청을 날짜별로 그룹화하여 조회 (pending과 completed 모두 포함)
     const [shippingRequests] = await connection.execute(`
       SELECT 
         DATE(request_date) as request_date,
         'shipping' as payment_type,
+        status,
         COUNT(*) as count,
         SUM(total_amount) as total_amount,
         GROUP_CONCAT(
-          CONCAT('출고일: ', pl_date, ' (', total_boxes, '박스, ', total_amount, ' CNY)')
+          CONCAT('출고일: ', pl_date, ' (', CAST(total_boxes AS UNSIGNED), '박스, ', CAST(total_amount AS DECIMAL(10,2)), ' CNY)')
           ORDER BY request_date ASC 
           SEPARATOR '; '
         ) as details
       FROM mj_shipping_payment_requests
-      WHERE status = 'pending'
-      GROUP BY DATE(request_date)
-      ORDER BY request_date ASC
+      WHERE status IN ('pending', 'completed')
+      GROUP BY DATE(request_date), status
+      ORDER BY request_date ASC, status
     `);
     
     // 모든 요청을 합치고 날짜별로 그룹화
@@ -193,20 +194,43 @@ router.get('/payment-requests-by-date', auth, async (req, res) => {
         groupedByDate[date].advance = {
           count: request.count,
           total_amount: request.total_amount,
-          details: request.details
+          details: request.details,
+          status: 'pending' // 프로젝트 요청은 항상 pending
         };
       } else if (request.payment_type === 'balance') {
         groupedByDate[date].balance = {
           count: request.count,
           total_amount: request.total_amount,
-          details: request.details
+          details: request.details,
+          status: 'pending' // 프로젝트 요청은 항상 pending
         };
       } else if (request.payment_type === 'shipping') {
-        groupedByDate[date].shipping = {
-          count: request.count,
-          total_amount: request.total_amount,
-          details: request.details
-        };
+        // 배송비 요청의 경우 상태별로 처리
+        if (!groupedByDate[date].shipping) {
+          groupedByDate[date].shipping = {
+            count: 0,
+            total_amount: 0,
+            details: '',
+            status: 'pending',
+            completed_count: 0,
+            completed_total_amount: 0,
+            completed_details: ''
+          };
+        }
+        
+        if (request.status === 'pending') {
+          groupedByDate[date].shipping.count = request.count;
+          groupedByDate[date].shipping.total_amount = request.total_amount;
+          groupedByDate[date].shipping.details = request.details;
+        } else if (request.status === 'completed') {
+          groupedByDate[date].shipping.completed_count = request.count;
+          groupedByDate[date].shipping.completed_total_amount = request.total_amount;
+          groupedByDate[date].shipping.completed_details = request.details;
+        }
+        
+        // 전체 수량과 금액 업데이트 (pending + completed)
+        groupedByDate[date].shipping.total_count = (groupedByDate[date].shipping.count || 0) + (groupedByDate[date].shipping.completed_count || 0);
+        groupedByDate[date].shipping.total_amount_all = (groupedByDate[date].shipping.total_amount || 0) + (groupedByDate[date].shipping.completed_total_amount || 0);
       }
     });
     
@@ -282,7 +306,7 @@ router.get('/payment-request-details/:date', auth, async (req, res) => {
       ORDER BY pr.created_at ASC
     `, [date]);
     
-    // 배송비 지급 요청 상세 조회
+    // 배송비 지급 요청 상세 조회 (pending과 completed 모두 포함)
     const [shippingRequests] = await connection.execute(`
       SELECT 
         id,
@@ -294,9 +318,9 @@ router.get('/payment-request-details/:date', auth, async (req, res) => {
         request_date,
         status
       FROM mj_shipping_payment_requests
-      WHERE status = 'pending' 
+      WHERE status IN ('pending', 'completed')
         AND DATE(request_date) = ?
-      ORDER BY request_date ASC
+      ORDER BY status ASC, request_date ASC
     `, [date]);
     
     res.json({
@@ -788,7 +812,7 @@ router.get('/shipping-payment-requests-by-date', auth, async (req, res) => {
         COUNT(*) as count,
         SUM(total_amount) as total_amount,
         GROUP_CONCAT(
-          CONCAT('출고일: ', pl_date, ' (', total_boxes, '박스, ', total_amount, ' CNY)')
+          CONCAT('출고일: ', pl_date, ' (', CAST(total_boxes AS UNSIGNED), '박스, ', CAST(total_amount AS DECIMAL(10,2)), ' CNY)')
           ORDER BY request_date ASC 
           SEPARATOR '; '
         ) as details
