@@ -299,6 +299,22 @@ router.get('/product-inventory-status', authMiddleware, async (req, res) => {
       arrived: 350       // 한국 도착
     });
 
+    // ID 114 제품 하드코딩 데이터 설정
+    quantitiesMap.set(114, {
+      scheduled: 100,    // 중국 재고 수량
+      completed: 0,      // 사용하지 않음
+      shipping: 100,     // 배송중
+      arrived: 0         // 한국 도착
+    });
+
+    // ID 78 제품 하드코딩 데이터 설정
+    quantitiesMap.set(78, {
+      scheduled: 1000,   // 중국 재고 수량
+      completed: 0,      // 사용하지 않음
+      shipping: 1000,    // 배송중
+      arrived: 0         // 한국 도착
+    });
+
     // 각 프로젝트에 대한 첫 번째 이미지 정보 조회
     const inventoryStatus = await Promise.all(projects.map(async (project) => {
       const quantities = quantitiesMap.get(project.id) || {
@@ -340,7 +356,7 @@ router.get('/product-inventory-status', authMiddleware, async (req, res) => {
                                  project.id === 28 || project.id === 29 || project.id === 30 || project.id === 31 ||
                                  project.id === 33 || project.id === 35 || project.id === 37 || 
                                  project.id === 38 || project.id === 39 || project.id === 42 || 
-                                 project.id === 46 || project.id === 47 || project.id === 52 || project.id === 76 || project.id === 79;
+                                 project.id === 46 || project.id === 47 || project.id === 52 || project.id === 76 || project.id === 78 || project.id === 79 || project.id === 114;
       let hardcodedTotalQuantity = project.total_quantity;
       
       if (project.id === 3) {
@@ -371,6 +387,10 @@ router.get('/product-inventory-status', authMiddleware, async (req, res) => {
         hardcodedTotalQuantity = 500;
       } else if (project.id === 79) {
         hardcodedTotalQuantity = 350;
+      } else if (project.id === 78) {
+        hardcodedTotalQuantity = 2000;
+      } else if (project.id === 114) {
+        hardcodedTotalQuantity = 200;
       }
       
       // 한국 도착 수량이 'total'인 경우 총 수량과 동일하게 설정
