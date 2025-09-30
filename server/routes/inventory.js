@@ -301,18 +301,18 @@ router.get('/product-inventory-status', authMiddleware, async (req, res) => {
 
     // ID 114 제품 하드코딩 데이터 설정
     quantitiesMap.set(114, {
-      scheduled: 100,    // 중국 재고 수량
+      scheduled: 0,      // 중국 재고 수량
       completed: 0,      // 사용하지 않음
-      shipping: 100,     // 배송중
-      arrived: 0         // 한국 도착
+      shipping: 0,       // 배송중
+      arrived: 100       // 한국 도착
     });
 
     // ID 78 제품 하드코딩 데이터 설정
     quantitiesMap.set(78, {
-      scheduled: 1000,   // 중국 재고 수량
+      scheduled: 0,      // 중국 재고 수량
       completed: 0,      // 사용하지 않음
-      shipping: 1000,    // 배송중
-      arrived: 0         // 한국 도착
+      shipping: 0,       // 배송중
+      arrived: 1000      // 한국 도착
     });
 
     // 각 프로젝트에 대한 첫 번째 이미지 정보 조회
@@ -390,7 +390,7 @@ router.get('/product-inventory-status', authMiddleware, async (req, res) => {
       } else if (project.id === 78) {
         hardcodedTotalQuantity = 2000;
       } else if (project.id === 114) {
-        hardcodedTotalQuantity = 200;
+        hardcodedTotalQuantity = 100;
       }
       
       // 한국 도착 수량이 'total'인 경우 총 수량과 동일하게 설정
