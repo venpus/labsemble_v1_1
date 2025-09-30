@@ -388,7 +388,7 @@ router.get('/product-inventory-status', authMiddleware, async (req, res) => {
       } else if (project.id === 79) {
         hardcodedTotalQuantity = 350;
       } else if (project.id === 78) {
-        hardcodedTotalQuantity = 2000;
+        hardcodedTotalQuantity = 1000;
       } else if (project.id === 114) {
         hardcodedTotalQuantity = 100;
       }
