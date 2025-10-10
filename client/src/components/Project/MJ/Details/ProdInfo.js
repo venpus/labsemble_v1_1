@@ -7,6 +7,8 @@ const ProdInfo = ({ project }) => {
   const [uploadedFiles, setUploadedFiles] = useState([]);
   const [isUploading, setIsUploading] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [hasChanges, setHasChanges] = useState(false);
   const fileInputRef = useRef(null);
 
   // 제품 정보 입력 상태
@@ -16,14 +18,56 @@ const ProdInfo = ({ project }) => {
   const [editableBoxWeight, setEditableBoxWeight] = useState(project.box_weight || '');
   const [editableSupplierName, setEditableSupplierName] = useState(project.supplier_name || '');
   const [editableFactoryDeliveryDays, setEditableFactoryDeliveryDays] = useState(project.factory_delivery_days || '');
-
-  // 입력 중 상태 (자동 저장 방지용)
-  const [isUnitWeightFocused, setIsUnitWeightFocused] = useState(false);
-  const [isPackagingMethodFocused, setIsPackagingMethodFocused] = useState(false);
-  const [isBoxDimensionsFocused, setIsBoxDimensionsFocused] = useState(false);
-  const [isBoxWeightFocused, setIsBoxWeightFocused] = useState(false);
-  const [isSupplierNameFocused, setIsSupplierNameFocused] = useState(false);
-  const [isFactoryDeliveryDaysFocused, setIsFactoryDeliveryDaysFocused] = useState(false);
+  
+  // 예상 단가 자동 계산: (최종 금액/수량) + (41/1000 × 1개 무게) + (4.8/(5000/1개 무게)) + (1/(5000/1개 무게))
+  const calculateEstimatedCost = () => {
+    const quantity = Number(project.quantity) || 0;
+    const unitWeight = Number(project.unit_weight) || 0;
+    
+    if (quantity === 0) {
+      return 0;
+    }
+    
+    // 최종 금액 계산: 총계 + 수수료 + 공장배송비 + 추가비용
+    const subtotal = Number(project.unit_price) * quantity || 0; // 총계
+    const fee = Number(project.fee) || 0; // 수수료
+    const factoryShippingCost = Number(project.factory_shipping_cost) || 0; // 공장배송비
+    
+    // 추가비용 합계 계산
+    let additionalCostTotal = 0;
+    if (project.additional_cost_items) {
+      try {
+        const additionalCosts = typeof project.additional_cost_items === 'string'
+          ? JSON.parse(project.additional_cost_items)
+          : project.additional_cost_items;
+        
+        if (Array.isArray(additionalCosts)) {
+          additionalCostTotal = additionalCosts.reduce((sum, item) => sum + (Number(item.cost) || 0), 0);
+        }
+      } catch (e) {
+        console.error('추가비용 파싱 오류:', e);
+      }
+    }
+    
+    const finalAmount = subtotal + fee + factoryShippingCost + additionalCostTotal;
+    
+    // 1. 최종 금액 / 수량
+    const pricePerUnit = finalAmount / quantity;
+    
+    // 2. 41/1000 × 1개 무게
+    const weightCost1 = (41 / 1000) * unitWeight;
+    
+    // 3. 4.8/(5000/1개 무게) = 4.8 × 1개 무게 / 5000
+    const weightCost2 = unitWeight > 0 ? (4.8 / (5000 / unitWeight)) : 0;
+    
+    // 4. 1/(5000/1개 무게) = 1 × 1개 무게 / 5000
+    const weightCost3 = unitWeight > 0 ? (1 / (5000 / unitWeight)) : 0;
+    
+    // 총 예상 단가
+    const estimatedUnitPrice = pricePerUnit + weightCost1 + weightCost2 + weightCost3;
+    
+    return estimatedUnitPrice;
+  };
 
   // 컴포넌트 마운트 시 admin 권한 확인 및 기존 파일들 불러오기
   useEffect(() => {
@@ -88,7 +132,7 @@ const ProdInfo = ({ project }) => {
         unit_weight: project.unit_weight,
         packaging_method: project.packaging_method,
         box_dimensions: project.box_dimensions,
-        box_weight: project.box_weight,
+        box_weight: project.box_weight, // 제품사이즈
         supplier_name: project.supplier_name,
         factory_delivery_days: project.factory_delivery_days
       });
@@ -99,30 +143,92 @@ const ProdInfo = ({ project }) => {
       setEditableBoxWeight(project.box_weight || '');
       setEditableSupplierName(project.supplier_name || '');
       setEditableFactoryDeliveryDays(project.factory_delivery_days || '');
-      
-      console.log('✅ 공급자 이름 상태 설정:', project.supplier_name || '');
-      console.log('✅ 공장납기소요일 상태 설정:', project.factory_delivery_days || '');
+      setHasChanges(false); // 데이터 로드 시 변경사항 초기화
     }
   }, [project]);
 
+  // 변경사항 감지
+  useEffect(() => {
+    const isChanged = 
+      editableUnitWeight !== (project.unit_weight || '') ||
+      editablePackagingMethod !== (project.packaging_method || '') ||
+      editableBoxDimensions !== (project.box_dimensions || '') ||
+      editableBoxWeight !== (project.box_weight || '') ||
+      editableSupplierName !== (project.supplier_name || '') ||
+      editableFactoryDeliveryDays !== (project.factory_delivery_days || '');
+    
+    setHasChanges(isChanged);
+  }, [
+    editableUnitWeight, 
+    editablePackagingMethod, 
+    editableBoxDimensions, 
+    editableBoxWeight, 
+    editableSupplierName, 
+    editableFactoryDeliveryDays,
+    project
+  ]);
+
   // 제품 정보를 DB에 저장하는 함수
-  const saveProductInfoToDB = useCallback(async (fieldName, value) => {
+  const saveProductInfo = useCallback(async () => {
     if (!isAdmin) {
       toast.error('admin 권한이 필요합니다.');
       return;
     }
 
+    if (!hasChanges) {
+      toast.info('변경된 내용이 없습니다.');
+      return;
+    }
+
+    setIsSaving(true);
+
     try {
       const token = localStorage.getItem('token');
       if (!token) {
-        return; // 토큰이 없으면 조용히 리턴
+        toast.error('로그인이 필요합니다.');
+        setIsSaving(false);
+        return;
       }
 
-      const updateData = {
-        [fieldName]: value
+      // 숫자 필드는 빈 문자열이면 null로, 값이 있으면 숫자로 변환
+      const parseNumberOrNull = (value) => {
+        if (value === '' || value === null || value === undefined) {
+          return null;
+        }
+        const parsed = Number(value);
+        return isNaN(parsed) ? null : parsed;
       };
 
-      await axios.patch(
+      // 텍스트 필드는 빈 문자열이면 null로 변환
+      const parseTextOrNull = (value) => {
+        if (value === '' || value === null || value === undefined) {
+          return null;
+        }
+        return String(value).trim() || null;
+      };
+
+      const updateData = {
+        unit_weight: parseNumberOrNull(editableUnitWeight),
+        packaging_method: parseTextOrNull(editablePackagingMethod),
+        box_dimensions: parseTextOrNull(editableBoxDimensions),
+        box_weight: parseTextOrNull(editableBoxWeight), // 제품사이즈는 텍스트
+        supplier_name: parseTextOrNull(editableSupplierName),
+        factory_delivery_days: parseNumberOrNull(editableFactoryDeliveryDays)
+      };
+
+      console.log('💾 제품 정보 저장 시작:', {
+        raw: {
+          unit_weight: editableUnitWeight,
+          packaging_method: editablePackagingMethod,
+          box_dimensions: editableBoxDimensions,
+          box_weight: editableBoxWeight,
+          supplier_name: editableSupplierName,
+          factory_delivery_days: editableFactoryDeliveryDays
+        },
+        processed: updateData
+      });
+
+      const response = await axios.patch(
         `/api/mj-project/${project.id}`,
         updateData,
         {
@@ -133,11 +239,41 @@ const ProdInfo = ({ project }) => {
         }
       );
 
-      console.log(`${fieldName}가 자동으로 DB에 저장되었습니다:`, value);
+      console.log('✅ 제품 정보 저장 성공:', response.data);
+      toast.success('제품 정보가 성공적으로 저장되었습니다.');
+      setHasChanges(false);
+
+      // 저장 후 페이지 새로고침하여 최신 데이터 가져오기
+      setTimeout(() => {
+        window.location.reload();
+      }, 1000);
+
     } catch (error) {
-      console.error(`${fieldName} 자동 저장 오류:`, error);
+      console.error('❌ 제품 정보 저장 오류:', error);
+      console.error('오류 상세:', {
+        message: error.message,
+        response: error.response?.data,
+        status: error.response?.status
+      });
+      
+      const errorMessage = error.response?.data?.error || 
+                          error.response?.data?.message || 
+                          '제품 정보 저장 중 오류가 발생했습니다.';
+      toast.error(errorMessage);
+    } finally {
+      setIsSaving(false);
     }
-  }, [project.id, isAdmin]);
+  }, [
+    project.id, 
+    isAdmin, 
+    hasChanges,
+    editableUnitWeight,
+    editablePackagingMethod,
+    editableBoxDimensions,
+    editableBoxWeight,
+    editableSupplierName,
+    editableFactoryDeliveryDays
+  ]);
 
   const handleFileUpload = async (event) => {
     if (!isAdmin) {
@@ -253,10 +389,40 @@ const ProdInfo = ({ project }) => {
 
   return (
     <div className="mb-8">
-      <h2 className="text-xl font-semibold text-gray-900 mb-4 flex items-center">
-        <Package className="w-5 h-5 mr-2 text-orange-600" />
-        제품정보
-      </h2>
+      {/* 헤더 및 저장 버튼 */}
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-xl font-semibold text-gray-900 flex items-center">
+          <Package className="w-5 h-5 mr-2 text-orange-600" />
+          제품정보
+        </h2>
+        
+        {isAdmin && (
+          <button
+            onClick={saveProductInfo}
+            disabled={!hasChanges || isSaving}
+            className={`flex items-center px-4 py-2 rounded-lg font-medium text-sm transition-all duration-200 ${
+              hasChanges && !isSaving
+                ? 'bg-blue-600 text-white hover:bg-blue-700 shadow-sm'
+                : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+            }`}
+          >
+            <Save className="w-4 h-4 mr-2" />
+            {isSaving ? '저장 중...' : hasChanges ? '저장' : '변경사항 없음'}
+          </button>
+        )}
+      </div>
+
+      {/* 변경사항 안내 */}
+      {isAdmin && hasChanges && (
+        <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+          <div className="flex items-center">
+            <Save className="w-4 h-4 mr-2 text-blue-600" />
+            <span className="text-sm text-blue-800">
+              변경된 내용이 있습니다. 저장 버튼을 클릭하여 저장하세요.
+            </span>
+          </div>
+        </div>
+      )}
       
       {/* 제품정보 테이블 */}
       <div className="overflow-x-auto mb-6">
@@ -273,6 +439,7 @@ const ProdInfo = ({ project }) => {
         <table className="min-w-full divide-y divide-gray-200 border border-gray-200">
           <tbody className="bg-white divide-y divide-gray-200">
             <tr className="hover:bg-gray-50">
+              {/* 1. 1개 무게 */}
               <td className="px-3 py-4 whitespace-nowrap text-sm font-medium text-gray-900 bg-gray-50 border-r border-gray-200" style={{width: '12.5%'}}>
                 <div className="flex items-center">
                   <div className="w-4 h-4 mr-2 rounded-full bg-blue-600"></div>
@@ -286,18 +453,6 @@ const ProdInfo = ({ project }) => {
                       type="number"
                       value={editableUnitWeight}
                       onChange={(e) => setEditableUnitWeight(e.target.value)}
-                      onFocus={() => setIsUnitWeightFocused(true)}
-                      onBlur={() => {
-                        setIsUnitWeightFocused(false);
-                        if (editableUnitWeight !== project.unit_weight) {
-                          saveProductInfoToDB('unit_weight', editableUnitWeight);
-                        }
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          e.target.blur();
-                        }
-                      }}
                       placeholder="0"
                       className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                       min="0"
@@ -313,10 +468,40 @@ const ProdInfo = ({ project }) => {
                   </div>
                 )}
               </td>
+              
+              {/* 2. 제품사이즈 */}
+              <td className="px-3 py-4 whitespace-nowrap text-sm font-medium text-gray-900 bg-gray-50 border-r border-gray-200" style={{width: '12.5%'}}>
+                <div className="flex items-center">
+                  <div className="w-4 h-4 mr-2 rounded-full bg-purple-600"></div>
+                  제품사이즈
+                </div>
+              </td>
+              <td className="px-3 py-4 whitespace-nowrap text-sm text-gray-900 border-r border-gray-200" style={{width: '12.5%'}}>
+                {isAdmin ? (
+                  <div className="flex items-center space-x-2">
+                    <input
+                      type="text"
+                      value={editableBoxWeight}
+                      onChange={(e) => setEditableBoxWeight(e.target.value)}
+                      placeholder="예: 10x5x3"
+                      className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                    />
+                    <span className="text-sm text-gray-600 font-medium">cm</span>
+                  </div>
+                ) : (
+                  <div className="flex items-center space-x-2">
+                    <span className="text-sm text-gray-900">
+                      {editableBoxWeight ? `${editableBoxWeight}cm` : '-'}
+                    </span>
+                  </div>
+                )}
+              </td>
+              
+              {/* 3. 소포장 방식 */}
               <td className="px-3 py-4 whitespace-nowrap text-sm font-medium text-gray-900 bg-gray-50 border-r border-gray-200" style={{width: '12.5%'}}>
                 <div className="flex items-center">
                   <div className="w-4 h-4 mr-2 rounded-full bg-green-600"></div>
-                  소포장 방식
+                  소포장 수량
                 </div>
               </td>
               <td className="px-3 py-4 whitespace-nowrap text-sm text-gray-900 border-r border-gray-200" style={{width: '12.5%'}}>
@@ -326,18 +511,6 @@ const ProdInfo = ({ project }) => {
                       type="text"
                       value={editablePackagingMethod}
                       onChange={(e) => setEditablePackagingMethod(e.target.value)}
-                      onFocus={() => setIsPackagingMethodFocused(true)}
-                      onBlur={() => {
-                        setIsPackagingMethodFocused(false);
-                        if (editablePackagingMethod !== project.packaging_method) {
-                          saveProductInfoToDB('packaging_method', editablePackagingMethod);
-                        }
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          e.target.blur();
-                        }
-                      }}
                       placeholder="예: 비닐, 종이, 폴리백"
                       className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500"
                     />
@@ -351,80 +524,30 @@ const ProdInfo = ({ project }) => {
                   </div>
                 )}
               </td>
+              
+              {/* 4. 한박스 입수량 */}
               <td className="px-3 py-4 whitespace-nowrap text-sm font-medium text-gray-900 bg-gray-50 border-r border-gray-200" style={{width: '12.5%'}}>
                 <div className="flex items-center">
                   <div className="w-4 h-4 mr-2 rounded-full bg-yellow-600"></div>
-                  박스 크기
-                </div>
-              </td>
-              <td className="px-3 py-4 whitespace-nowrap text-sm text-gray-900 border-r border-gray-200" style={{width: '12.5%'}}>
-                {isAdmin ? (
-                  <div className="flex items-center space-x-2">
-                    <input
-                      type="text"
-                      value={editableBoxDimensions}
-                      onChange={(e) => setEditableBoxDimensions(e.target.value)}
-                      onFocus={() => setIsBoxDimensionsFocused(true)}
-                      onBlur={() => {
-                        setIsBoxDimensionsFocused(false);
-                        if (editableBoxDimensions !== project.box_dimensions) {
-                          saveProductInfoToDB('box_dimensions', editableBoxDimensions);
-                        }
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          e.target.blur();
-                        }
-                      }}
-                      placeholder="예: 30x20x15"
-                      className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500"
-                    />
-                    <span className="text-sm text-gray-600 font-medium">cm</span>
-                  </div>
-                ) : (
-                  <div className="flex items-center space-x-2">
-                    <span className="text-sm text-gray-900">
-                      {editableBoxDimensions || '-'}
-                    </span>
-                  </div>
-                )}
-              </td>
-              <td className="px-3 py-4 whitespace-nowrap text-sm font-medium text-gray-900 bg-gray-50 border-r border-gray-200" style={{width: '12.5%'}}>
-                <div className="flex items-center">
-                  <div className="w-4 h-4 mr-2 rounded-full bg-purple-600"></div>
-                  박스 무게
+                  한박스 입수량
                 </div>
               </td>
               <td className="px-3 py-4 whitespace-nowrap text-sm text-gray-900" style={{width: '12.5%'}}>
                 {isAdmin ? (
                   <div className="flex items-center space-x-2">
                     <input
-                      type="number"
-                      value={editableBoxWeight}
-                      onChange={(e) => setEditableBoxWeight(e.target.value)}
-                      onFocus={() => setIsBoxWeightFocused(true)}
-                      onBlur={() => {
-                        setIsBoxWeightFocused(false);
-                        if (editableBoxWeight !== project.box_weight) {
-                          saveProductInfoToDB('box_weight', editableBoxWeight);
-                        }
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          e.target.blur();
-                        }
-                      }}
-                      placeholder="0"
-                      className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
-                      min="0"
-                      step="0.01"
+                      type="text"
+                      value={editableBoxDimensions}
+                      onChange={(e) => setEditableBoxDimensions(e.target.value)}
+                      placeholder="예: 100"
+                      className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500"
                     />
-                    <span className="text-sm text-gray-600 font-medium">kg</span>
+                    <span className="text-sm text-gray-600 font-medium">개</span>
                   </div>
                 ) : (
                   <div className="flex items-center space-x-2">
                     <span className="text-sm text-gray-900">
-                      {editableBoxWeight ? `${editableBoxWeight}kg` : '-'}
+                      {editableBoxDimensions ? `${editableBoxDimensions}개` : '-'}
                     </span>
                   </div>
                 )}
@@ -444,18 +567,6 @@ const ProdInfo = ({ project }) => {
                       type="text"
                       value={editableSupplierName}
                       onChange={(e) => setEditableSupplierName(e.target.value)}
-                      onFocus={() => setIsSupplierNameFocused(true)}
-                      onBlur={() => {
-                        setIsSupplierNameFocused(false);
-                        if (editableSupplierName !== project.supplier_name) {
-                          saveProductInfoToDB('supplier_name', editableSupplierName);
-                        }
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          e.target.blur();
-                        }
-                      }}
                       placeholder="공급자명 입력"
                       className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                     />
@@ -471,7 +582,7 @@ const ProdInfo = ({ project }) => {
               <td className="px-3 py-4 whitespace-nowrap text-sm font-medium text-gray-900 bg-gray-50 border-r border-gray-200" style={{width: '12.5%'}}>
                 <div className="flex items-center">
                   <div className="w-4 h-4 mr-2 rounded-full bg-red-600"></div>
-                  공장 납기소요일
+                  공장 납기
                 </div>
               </td>
               <td className="px-3 py-4 whitespace-nowrap text-sm text-gray-900 border-r border-gray-200" style={{width: '12.5%'}}>
@@ -480,27 +591,7 @@ const ProdInfo = ({ project }) => {
                     <input
                       type="number"
                       value={editableFactoryDeliveryDays}
-                      onChange={(e) => {
-                        const newValue = e.target.value;
-                        console.log('📝 공장납기소요일 입력 변경:', newValue);
-                        setEditableFactoryDeliveryDays(newValue);
-                      }}
-                      onFocus={() => setIsFactoryDeliveryDaysFocused(true)}
-                      onBlur={() => {
-                        setIsFactoryDeliveryDaysFocused(false);
-                        console.log('💾 공장납기소요일 저장 시도:', {
-                          current: editableFactoryDeliveryDays,
-                          original: project.factory_delivery_days
-                        });
-                        if (editableFactoryDeliveryDays !== project.factory_delivery_days) {
-                          saveProductInfoToDB('factory_delivery_days', editableFactoryDeliveryDays);
-                        }
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          e.target.blur();
-                        }
-                      }}
+                      onChange={(e) => setEditableFactoryDeliveryDays(e.target.value)}
                       placeholder="0"
                       className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-red-500"
                       min="0"
@@ -518,13 +609,23 @@ const ProdInfo = ({ project }) => {
               </td>
               <td className="px-3 py-4 whitespace-nowrap text-sm text-gray-900 bg-gray-50 border-r border-gray-200" style={{width: '12.5%'}}>
                 <div className="flex items-center">
-                  <div className="w-4 h-4 mr-2 rounded-full bg-gray-600"></div>
-                  -
+                  <div className="w-4 h-4 mr-2 rounded-full bg-teal-600"></div>
+                  예상원가
                 </div>
               </td>
               <td className="px-3 py-4 whitespace-nowrap text-sm text-gray-900 border-r border-gray-200" style={{width: '12.5%'}}>
-                <div className="flex items-center space-x-2">
-                  <span className="text-sm text-gray-900">-</span>
+                <div className="flex flex-col space-y-1">
+                  <div className="flex items-center space-x-2">
+                    <span className="text-sm font-semibold text-teal-700" title="단가×(1+수수료율) + 무게기반 비용">
+                      {calculateEstimatedCost() > 0 ? `¥${calculateEstimatedCost().toFixed(2)}` : '-'}
+                    </span>
+                    <span className="text-xs text-gray-500">(자동)</span>
+                  </div>
+                  {project.unit_weight > 0 && (
+                    <span className="text-xs text-gray-400">
+                      {project.unit_weight}g 기준
+                    </span>
+                  )}
                 </div>
               </td>
               <td className="px-3 py-4 whitespace-nowrap text-sm font-medium text-gray-900 bg-gray-50 border-r border-gray-200" style={{width: '12.5%'}}>
@@ -538,17 +639,7 @@ const ProdInfo = ({ project }) => {
                   <span className="text-sm text-gray-900">-</span>
                 </div>
               </td>
-              <td className="px-3 py-4 whitespace-nowrap text-sm font-medium text-gray-900 bg-gray-50 border-r border-gray-200" style={{width: '12.5%'}}>
-                <div className="flex items-center">
-                  <div className="w-4 h-4 mr-2 rounded-full bg-gray-600"></div>
-                  -
-                </div>
-              </td>
-              <td className="px-3 py-4 whitespace-nowrap text-sm text-gray-900" style={{width: '12.5%'}}>
-                <div className="flex items-center space-x-2">
-                  <span className="text-sm text-gray-900">-</span>
-                </div>
-              </td>
+              
             </tr>
           </tbody>
         </table>

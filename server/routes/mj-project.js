@@ -683,6 +683,12 @@ router.patch('/:id', authMiddleware, async (req, res) => {
     const projectId = req.params.id;
     const updateData = req.body;
     
+    console.log('📝 [mj-project] 프로젝트 정보 업데이트 요청:', {
+      projectId,
+      userId: req.user?.userId,
+      updateData
+    });
+    
     // 프로젝트 존재 여부 확인
     const [project] = await connection.execute(
       'SELECT * FROM mj_project WHERE id = ?',
@@ -690,6 +696,7 @@ router.patch('/:id', authMiddleware, async (req, res) => {
     );
     
     if (project.length === 0) {
+      console.log('❌ [mj-project] 프로젝트를 찾을 수 없음:', projectId);
       return res.status(404).json({ error: '프로젝트를 찾을 수 없습니다.' });
     }
     
@@ -700,10 +707,16 @@ router.patch('/:id', authMiddleware, async (req, res) => {
     );
     
     if (user.length === 0) {
+      console.log('❌ [mj-project] 사용자를 찾을 수 없음:', req.user.userId);
       return res.status(401).json({ error: '사용자 인증이 필요합니다.' });
     }
     
     if (!user[0].is_admin && project[0].user_id !== req.user.userId) {
+      console.log('❌ [mj-project] 권한 없음:', {
+        isAdmin: user[0].is_admin,
+        projectUserId: project[0].user_id,
+        requestUserId: req.user.userId
+      });
       return res.status(403).json({ error: '프로젝트를 수정할 권한이 없습니다.' });
     }
     
@@ -723,6 +736,8 @@ router.patch('/:id', authMiddleware, async (req, res) => {
       }
     }
 
+    console.log('🔍 [mj-project] 필터링된 업데이트 데이터:', filteredData);
+
     // 실제 공장 출고일이 설정되면 공장 출고 완료 상태를 true로 자동 업데이트
     if (filteredData.actual_factory_shipping_date && filteredData.actual_factory_shipping_date !== null) {
       filteredData.is_factory_shipping_completed = true;
@@ -733,17 +748,37 @@ router.patch('/:id', authMiddleware, async (req, res) => {
       const updateFields = Object.keys(filteredData).map(field => `${field} = ?`).join(', ');
       const updateValues = Object.values(filteredData);
       
-      await connection.execute(
-        `UPDATE mj_project SET ${updateFields}, updated_at = NOW() WHERE id = ?`,
-        [...updateValues, projectId]
-      );
+      const query = `UPDATE mj_project SET ${updateFields}, updated_at = NOW() WHERE id = ?`;
+      console.log('🔧 [mj-project] 실행할 SQL:', {
+        query,
+        values: [...updateValues, projectId]
+      });
+      
+      await connection.execute(query, [...updateValues, projectId]);
+      
+      console.log('✅ [mj-project] 프로젝트 정보 업데이트 완료:', projectId);
+    } else {
+      console.log('⚠️ [mj-project] 업데이트할 데이터 없음');
     }
     
-    res.json({ message: '프로젝트 정보가 성공적으로 업데이트되었습니다.' });
+    res.json({ 
+      success: true,
+      message: '프로젝트 정보가 성공적으로 업데이트되었습니다.',
+      updatedFields: Object.keys(filteredData)
+    });
     
   } catch (error) {
-    console.error('MJ 프로젝트 정보 업데이트 오류:', error);
-    res.status(500).json({ error: '프로젝트 정보 업데이트 중 오류가 발생했습니다.' });
+    console.error('❌ [mj-project] 프로젝트 정보 업데이트 오류:', error);
+    console.error('오류 상세:', {
+      message: error.message,
+      code: error.code,
+      sqlMessage: error.sqlMessage,
+      sql: error.sql
+    });
+    res.status(500).json({ 
+      error: '프로젝트 정보 업데이트 중 오류가 발생했습니다.',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
   } finally {
     connection.release();
   }
@@ -995,6 +1030,246 @@ router.delete('/:id/real-images/:imageId', authMiddleware, async (req, res) => {
   } catch (error) {
     console.error('제품 이미지 삭제 오류:', error);
     res.status(500).json({ error: '제품 이미지 삭제 중 오류가 발생했습니다.' });
+  } finally {
+    connection.release();
+  }
+});
+
+// 상품 이미지 추가 (registImage)
+router.post('/:id/product-images', authMiddleware, handleMulterError, async (req, res) => {
+  const connection = await pool.getConnection();
+  
+  try {
+    const projectId = req.params.id;
+    
+    console.log('📸 [mj-project] 상품 이미지 추가 요청:', {
+      projectId,
+      filesCount: req.files?.length || 0
+    });
+    
+    // 프로젝트 존재 여부 확인
+    const [project] = await connection.execute(
+      'SELECT * FROM mj_project WHERE id = ?',
+      [projectId]
+    );
+    
+    if (project.length === 0) {
+      return res.status(404).json({ error: '프로젝트를 찾을 수 없습니다.' });
+    }
+    
+    // 권한 확인 (admin만 수정 가능)
+    const [user] = await connection.execute(
+      'SELECT is_admin FROM users WHERE id = ?',
+      [req.user.userId]
+    );
+    
+    if (user.length === 0) {
+      return res.status(401).json({ error: '사용자 인증이 필요합니다.' });
+    }
+    
+    if (!user[0].is_admin) {
+      return res.status(403).json({ error: 'admin 권한이 필요합니다.' });
+    }
+    
+    if (!req.files || req.files.length === 0) {
+      return res.status(400).json({ error: '업로드할 이미지를 선택해주세요.' });
+    }
+    
+    // 이미지 정보를 DB에 저장
+    const uploadedImages = [];
+    for (const file of req.files) {
+      const [result] = await connection.execute(
+        'INSERT INTO mj_project_images (project_id, file_name, file_path, original_name) VALUES (?, ?, ?, ?)',
+        [projectId, file.filename, file.filename, file.originalname]
+      );
+      
+      uploadedImages.push({
+        id: result.insertId,
+        file_name: file.filename,
+        original_name: file.originalname,
+        url: `/api/warehouse/image/${file.filename}`,
+        fallback_url: `/uploads/project/mj/registImage/${file.filename}`
+      });
+    }
+    
+    console.log('✅ [mj-project] 상품 이미지 추가 완료:', uploadedImages.length);
+    
+    res.json({ 
+      success: true,
+      message: '상품 이미지가 성공적으로 추가되었습니다.',
+      images: uploadedImages
+    });
+    
+  } catch (error) {
+    console.error('❌ [mj-project] 상품 이미지 추가 오류:', error);
+    res.status(500).json({ error: '상품 이미지 추가 중 오류가 발생했습니다.' });
+  } finally {
+    connection.release();
+  }
+});
+
+// 상품 이미지 변경 (registImage)
+router.patch('/:id/product-images/:imageId', authMiddleware, handleMulterError, async (req, res) => {
+  const connection = await pool.getConnection();
+  
+  try {
+    const { id: projectId, imageId } = req.params;
+    
+    console.log('🔄 [mj-project] 상품 이미지 변경 요청:', {
+      projectId,
+      imageId,
+      hasFile: !!req.files && req.files.length > 0
+    });
+    
+    // 프로젝트 존재 여부 확인
+    const [project] = await connection.execute(
+      'SELECT * FROM mj_project WHERE id = ?',
+      [projectId]
+    );
+    
+    if (project.length === 0) {
+      return res.status(404).json({ error: '프로젝트를 찾을 수 없습니다.' });
+    }
+    
+    // 권한 확인 (admin만 수정 가능)
+    const [user] = await connection.execute(
+      'SELECT is_admin FROM users WHERE id = ?',
+      [req.user.userId]
+    );
+    
+    if (user.length === 0) {
+      return res.status(401).json({ error: '사용자 인증이 필요합니다.' });
+    }
+    
+    if (!user[0].is_admin) {
+      return res.status(403).json({ error: 'admin 권한이 필요합니다.' });
+    }
+    
+    if (!req.files || req.files.length === 0) {
+      return res.status(400).json({ error: '새 이미지를 선택해주세요.' });
+    }
+    
+    // 기존 이미지 정보 조회
+    const [image] = await connection.execute(
+      'SELECT * FROM mj_project_images WHERE id = ? AND project_id = ?',
+      [imageId, projectId]
+    );
+    
+    if (image.length === 0) {
+      return res.status(404).json({ error: '이미지를 찾을 수 없습니다.' });
+    }
+    
+    // 기존 파일 삭제
+    const oldFilePath = path.join(__dirname, '..', 'uploads', 'project', 'mj', 'registImage', image[0].file_name);
+    if (fs.existsSync(oldFilePath)) {
+      fs.unlinkSync(oldFilePath);
+      console.log('🗑️ [mj-project] 기존 파일 삭제 완료:', oldFilePath);
+    }
+    
+    // 새 이미지 정보로 업데이트
+    const newFile = req.files[0];
+    await connection.execute(
+      'UPDATE mj_project_images SET file_name = ?, file_path = ?, original_name = ? WHERE id = ?',
+      [newFile.filename, newFile.filename, newFile.originalname, imageId]
+    );
+    
+    console.log('✅ [mj-project] 상품 이미지 변경 완료:', {
+      imageId,
+      oldFileName: image[0].file_name,
+      newFileName: newFile.filename
+    });
+    
+    const updatedImage = {
+      id: imageId,
+      file_name: newFile.filename,
+      original_name: newFile.originalname,
+      url: `/api/warehouse/image/${newFile.filename}`,
+      fallback_url: `/uploads/project/mj/registImage/${newFile.filename}`
+    };
+    
+    res.json({ 
+      success: true,
+      message: '상품 이미지가 성공적으로 변경되었습니다.',
+      image: updatedImage
+    });
+    
+  } catch (error) {
+    console.error('❌ [mj-project] 상품 이미지 변경 오류:', error);
+    res.status(500).json({ error: '상품 이미지 변경 중 오류가 발생했습니다.' });
+  } finally {
+    connection.release();
+  }
+});
+
+// 상품 이미지 삭제 (registImage)
+router.delete('/:id/product-images/:imageId', authMiddleware, async (req, res) => {
+  const connection = await pool.getConnection();
+  
+  try {
+    const { id: projectId, imageId } = req.params;
+    
+    console.log('🗑️ [mj-project] 상품 이미지 삭제 요청:', {
+      projectId,
+      imageId
+    });
+    
+    // 프로젝트 존재 여부 확인
+    const [project] = await connection.execute(
+      'SELECT * FROM mj_project WHERE id = ?',
+      [projectId]
+    );
+    
+    if (project.length === 0) {
+      return res.status(404).json({ error: '프로젝트를 찾을 수 없습니다.' });
+    }
+    
+    // 권한 확인 (admin만 수정 가능)
+    const [user] = await connection.execute(
+      'SELECT is_admin FROM users WHERE id = ?',
+      [req.user.userId]
+    );
+    
+    if (user.length === 0) {
+      return res.status(401).json({ error: '사용자 인증이 필요합니다.' });
+    }
+    
+    if (!user[0].is_admin) {
+      return res.status(403).json({ error: 'admin 권한이 필요합니다.' });
+    }
+    
+    // 이미지 정보 조회
+    const [image] = await connection.execute(
+      'SELECT * FROM mj_project_images WHERE id = ? AND project_id = ?',
+      [imageId, projectId]
+    );
+    
+    if (image.length === 0) {
+      return res.status(404).json({ error: '이미지를 찾을 수 없습니다.' });
+    }
+    
+    // 파일 시스템에서 파일 삭제
+    const filePath = path.join(__dirname, '..', 'uploads', 'project', 'mj', 'registImage', image[0].file_name);
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+      console.log('🗑️ [mj-project] 파일 삭제 완료:', filePath);
+    }
+    
+    // 데이터베이스에서 이미지 정보 삭제
+    await connection.execute(
+      'DELETE FROM mj_project_images WHERE id = ?',
+      [imageId]
+    );
+    
+    console.log('✅ [mj-project] 상품 이미지 삭제 완료:', imageId);
+    
+    res.json({ 
+      success: true,
+      message: '상품 이미지가 성공적으로 삭제되었습니다.' 
+    });
+    
+  } catch (error) {
+    console.error('❌ [mj-project] 상품 이미지 삭제 오류:', error);
+    res.status(500).json({ error: '상품 이미지 삭제 중 오류가 발생했습니다.' });
   } finally {
     connection.release();
   }

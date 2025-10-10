@@ -1777,6 +1777,56 @@ async function migrateLogisticPaymentArrivalFields() {
   }
 }
 
+// 제품 정보 필드 마이그레이션 함수
+async function migrateProductInfoFields() {
+  const connection = await pool.getConnection();
+  
+  try {
+    console.log('🔄 제품 정보 필드 마이그레이션 시작...');
+    
+    const fields = [
+      { name: 'unit_weight', type: 'DECIMAL(10,2)', comment: '제품 1개 무게 (g)' },
+      { name: 'packaging_method', type: 'VARCHAR(200)', comment: '소포장 방식' },
+      { name: 'box_dimensions', type: 'VARCHAR(100)', comment: '한박스 입수량 (개)' },
+      { name: 'box_weight', type: 'VARCHAR(50)', comment: '제품사이즈 (cm)' },
+      { name: 'factory_delivery_days', type: 'INT', comment: '공장 납기 소요일' }
+    ];
+
+    let addedCount = 0;
+    let existsCount = 0;
+
+    for (const field of fields) {
+      // 필드 존재 여부 확인
+      const [columns] = await connection.execute(
+        `SHOW COLUMNS FROM mj_project LIKE '${field.name}'`
+      );
+
+      if (columns.length === 0) {
+        // 필드가 없으면 추가
+        await connection.execute(`
+          ALTER TABLE mj_project 
+          ADD COLUMN ${field.name} ${field.type} DEFAULT NULL 
+          COMMENT '${field.comment}'
+        `);
+        
+        console.log(`✅ ${field.name} 필드 추가 완료`);
+        addedCount++;
+      } else {
+        console.log(`ℹ️  ${field.name} 필드가 이미 존재합니다.`);
+        existsCount++;
+      }
+    }
+    
+    console.log(`✅ 제품 정보 필드 마이그레이션 완료 (추가: ${addedCount}, 기존: ${existsCount})`);
+    
+  } catch (error) {
+    console.error('❌ 제품 정보 필드 마이그레이션 오류:', error);
+    throw error;
+  } finally {
+    connection.release();
+  }
+}
+
 // 모든 마이그레이션 실행 함수
 async function runAllMigrations() {
   console.log('🚀 모든 마이그레이션 실행 시작...');
@@ -1801,6 +1851,9 @@ async function runAllMigrations() {
     
     // logistic_payment 도착 필드 마이그레이션 (기존 mj_packing_list 대신)
     await migrateLogisticPaymentArrivalFields();
+    
+    // 제품 정보 필드 마이그레이션
+    await migrateProductInfoFields();
     
     console.log('✅ 모든 마이그레이션이 성공적으로 완료되었습니다!');
     
@@ -1829,5 +1882,6 @@ module.exports = {
   migrateAppVersionsTable,
   migrateSoftDeleteFields,
   migrateLogisticPaymentArrivalFields,
+  migrateProductInfoFields,
   runAllMigrations
 }; 

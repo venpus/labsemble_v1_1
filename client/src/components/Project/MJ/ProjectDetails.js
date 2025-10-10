@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../../contexts/AuthContext';
 import { 
@@ -12,12 +12,18 @@ import {
   Image as ImageIcon,
   Clock,
   Truck,
-  Ship
+  Ship,
+  Upload,
+  X,
+  Lock,
+  RefreshCw
 } from 'lucide-react';
 import ProdInfo from './Details/ProdInfo';
 import Payment from './Details/Payment';
 import { Delivery } from './Details/Delivery';
 import Logistic from './Details/Logistic';
+import axios from 'axios';
+import toast from 'react-hot-toast';
 
 const ProjectDetails = () => {
   const { id } = useParams();
@@ -29,6 +35,11 @@ const ProjectDetails = () => {
   const [activeTab, setActiveTab] = useState('basic');
   const [hasUnsavedPaymentChanges, setHasUnsavedPaymentChanges] = useState(false);
   const [tabLoading, setTabLoading] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
+  const [replacingImageId, setReplacingImageId] = useState(null);
+  const productImageInputRef = useRef(null);
+  const replaceImageInputRef = useRef(null);
 
   // URL 쿼리 파라미터에서 탭 정보 가져오기
   useEffect(() => {
@@ -44,6 +55,29 @@ const ProjectDetails = () => {
       fetchProjectDetails();
     }
   }, [isAuthenticated, id]);
+
+  // Admin 권한 확인
+  useEffect(() => {
+    const checkAdminStatus = async () => {
+      try {
+        const token = localStorage.getItem('token');
+        if (!token) return;
+
+        const response = await axios.get('/api/users/me', {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        });
+
+        setIsAdmin(response.data.is_admin || false);
+      } catch (error) {
+        console.error('admin 권한 확인 오류:', error);
+        setIsAdmin(false);
+      }
+    };
+
+    checkAdminStatus();
+  }, []);
 
   const fetchProjectDetails = async (showTabLoading = false, tabName = null) => {
     try {
@@ -177,6 +211,186 @@ const ProjectDetails = () => {
       // return 파라미터가 없으면 기본 목록으로 이동
       console.log('🔙 [ProjectDetails] 기본 목록으로 이동');
       navigate('/dashboard/mj-projects');
+    }
+  };
+
+  // 상품 이미지 추가
+  const handleProductImageUpload = async (event) => {
+    if (!isAdmin) {
+      toast.error('admin 권한이 필요합니다.');
+      return;
+    }
+
+    const files = Array.from(event.target.files);
+    
+    if (files.length === 0) {
+      return;
+    }
+
+    setIsUploadingImage(true);
+
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        toast.error('로그인이 필요합니다.');
+        return;
+      }
+
+      // FormData 생성
+      const formData = new FormData();
+      files.forEach(file => {
+        formData.append('images', file);
+      });
+
+      console.log('📸 상품 이미지 업로드 시작:', files.length);
+
+      // 서버에 파일 업로드
+      const response = await axios.post(
+        `/api/mj-project/${id}/product-images`,
+        formData,
+        {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'multipart/form-data'
+          }
+        }
+      );
+
+      console.log('✅ 상품 이미지 업로드 성공:', response.data);
+      toast.success(`${files.length}개 이미지가 성공적으로 추가되었습니다.`);
+
+      // 프로젝트 정보 새로고침
+      await fetchProjectDetails();
+
+    } catch (error) {
+      console.error('❌ 상품 이미지 업로드 오류:', error);
+      toast.error(error.response?.data?.error || '이미지 업로드 중 오류가 발생했습니다.');
+    } finally {
+      setIsUploadingImage(false);
+      // 파일 입력 초기화
+      if (productImageInputRef.current) {
+        productImageInputRef.current.value = '';
+      }
+    }
+  };
+
+  // 상품 이미지 변경 준비
+  const handleProductImageReplaceClick = (imageId) => {
+    if (!isAdmin) {
+      toast.error('admin 권한이 필요합니다.');
+      return;
+    }
+
+    setReplacingImageId(imageId);
+    replaceImageInputRef.current?.click();
+  };
+
+  // 상품 이미지 변경 실행
+  const handleProductImageReplace = async (event) => {
+    if (!isAdmin) {
+      toast.error('admin 권한이 필요합니다.');
+      return;
+    }
+
+    if (!replacingImageId) {
+      return;
+    }
+
+    const files = Array.from(event.target.files);
+    
+    if (files.length === 0) {
+      setReplacingImageId(null);
+      return;
+    }
+
+    setIsUploadingImage(true);
+
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        toast.error('로그인이 필요합니다.');
+        return;
+      }
+
+      // FormData 생성
+      const formData = new FormData();
+      formData.append('images', files[0]); // 첫 번째 파일만 사용
+
+      console.log('🔄 상품 이미지 변경 시작:', {
+        imageId: replacingImageId,
+        fileName: files[0].name
+      });
+
+      // 서버에 이미지 변경 요청
+      const response = await axios.patch(
+        `/api/mj-project/${id}/product-images/${replacingImageId}`,
+        formData,
+        {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'multipart/form-data'
+          }
+        }
+      );
+
+      console.log('✅ 상품 이미지 변경 성공:', response.data);
+      toast.success('이미지가 성공적으로 변경되었습니다.');
+
+      // 프로젝트 정보 새로고침
+      await fetchProjectDetails();
+
+    } catch (error) {
+      console.error('❌ 상품 이미지 변경 오류:', error);
+      toast.error(error.response?.data?.error || '이미지 변경 중 오류가 발생했습니다.');
+    } finally {
+      setIsUploadingImage(false);
+      setReplacingImageId(null);
+      // 파일 입력 초기화
+      if (replaceImageInputRef.current) {
+        replaceImageInputRef.current.value = '';
+      }
+    }
+  };
+
+  // 상품 이미지 삭제
+  const handleProductImageDelete = async (imageId) => {
+    if (!isAdmin) {
+      toast.error('admin 권한이 필요합니다.');
+      return;
+    }
+
+    if (!window.confirm('이 이미지를 삭제하시겠습니까?')) {
+      return;
+    }
+
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        toast.error('로그인이 필요합니다.');
+        return;
+      }
+
+      console.log('🗑️ 상품 이미지 삭제 시작:', imageId);
+
+      // 서버에서 이미지 삭제
+      await axios.delete(
+        `/api/mj-project/${id}/product-images/${imageId}`,
+        {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        }
+      );
+
+      console.log('✅ 상품 이미지 삭제 성공');
+      toast.success('이미지가 성공적으로 삭제되었습니다.');
+
+      // 프로젝트 정보 새로고침
+      await fetchProjectDetails();
+
+    } catch (error) {
+      console.error('❌ 상품 이미지 삭제 오류:', error);
+      toast.error(error.response?.data?.error || '이미지 삭제 중 오류가 발생했습니다.');
     }
   };
 
@@ -413,39 +627,120 @@ const ProjectDetails = () => {
             {activeTab === 'basic' && (
               <>
                 {/* Images Section - Moved to top */}
-                {project.images && project.images.length > 0 && (
-                  <div className="mb-8">
-                    <h2 className="text-xl font-semibold text-gray-900 mb-4 flex items-center">
+                <div className="mb-8">
+                  <div className="flex items-center justify-between mb-4">
+                    <h2 className="text-xl font-semibold text-gray-900 flex items-center">
                       <ImageIcon className="w-5 h-5 mr-2 text-orange-600" />
-                      업로드된 이미지 ({project.images.length}개)
+                      상품 이미지 ({project.images?.length || 0}개)
                     </h2>
+                    
+                    {/* 이미지 업로드 버튼 (Admin만) */}
+                    {isAdmin && (
+                      <button
+                        onClick={() => productImageInputRef.current?.click()}
+                        disabled={isUploadingImage}
+                        className="flex items-center px-4 py-2 bg-blue-600 text-white text-sm rounded-md hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
+                      >
+                        {isUploadingImage ? (
+                          <>
+                            <div className="w-4 h-4 mr-2 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                            업로드 중...
+                          </>
+                        ) : (
+                          <>
+                            <Upload className="w-4 h-4 mr-2" />
+                            이미지 추가
+                          </>
+                        )}
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Admin 권한 안내 */}
+                  {!isAdmin && (
+                    <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                      <div className="flex items-center">
+                        <Lock className="w-4 h-4 mr-2 text-yellow-600" />
+                        <span className="text-sm text-yellow-800">
+                          상품 이미지 추가/삭제는 admin 권한이 필요합니다. 현재 읽기 전용 모드입니다.
+                        </span>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 숨겨진 파일 입력 - 추가용 */}
+                  <input
+                    ref={productImageInputRef}
+                    type="file"
+                    multiple
+                    accept="image/*"
+                    onChange={handleProductImageUpload}
+                    className="hidden"
+                  />
+
+                  {/* 숨겨진 파일 입력 - 변경용 */}
+                  <input
+                    ref={replaceImageInputRef}
+                    type="file"
+                    accept="image/*"
+                    onChange={handleProductImageReplace}
+                    className="hidden"
+                  />
+
+                  {project.images && project.images.length > 0 ? (
                     <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
                       {project.images.map((image, index) => (
-                        <div key={index} className="relative group">
+                        <div key={image.id || index} className="relative group">
                           <img
                             src={image.url || `/uploads/project/mj/registImage/${image.file_name}`}
                             alt={`프로젝트 이미지 ${index + 1}`}
                             className="w-full h-32 object-cover rounded-lg border border-gray-200 shadow-sm hover:shadow-md transition-shadow cursor-pointer"
                             onError={(e) => {
                               // 이미지 로드 실패 시 대체 URL 시도
-                              if (image.fallback_url) {
+                              if (image.fallback_url && e.target.src !== image.fallback_url) {
                                 e.target.src = image.fallback_url;
                               } else if (image.file_name) {
                                 const fallbackUrl = `/uploads/project/mj/registImage/${image.file_name}`;
-                                e.target.src = fallbackUrl;
+                                if (e.target.src !== fallbackUrl) {
+                                  e.target.src = fallbackUrl;
+                                }
                               }
-                              
-                              // 대체 URL도 실패하면 기본 아이콘 표시
-                              e.target.onerror = () => {
-                                e.target.style.display = 'none';
-                                // 기본 아이콘 표시 로직 추가
-                              };
                             }}
                             onClick={() => {
                               const imageUrl = image.url || image.fallback_url || `/uploads/project/mj/registImage/${image.file_name}`;
                               window.open(imageUrl, '_blank');
                             }}
                           />
+                          
+                          {/* 액션 버튼들 (Admin만) */}
+                          {isAdmin && (
+                            <>
+                              {/* 변경 버튼 */}
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleProductImageReplaceClick(image.id);
+                                }}
+                                className="absolute -top-2 -left-2 w-6 h-6 bg-blue-500 text-white rounded-full hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors shadow-md opacity-0 group-hover:opacity-100"
+                                title="이미지 변경"
+                              >
+                                <RefreshCw className="w-3 h-3 mx-auto" />
+                              </button>
+                              
+                              {/* 삭제 버튼 */}
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleProductImageDelete(image.id);
+                                }}
+                                className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 text-white rounded-full hover:bg-red-600 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 transition-colors shadow-md opacity-0 group-hover:opacity-100"
+                                title="이미지 삭제"
+                              >
+                                <X className="w-4 h-4 mx-auto" />
+                              </button>
+                            </>
+                          )}
+                          
                           <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-20 transition-all duration-200 rounded-lg flex items-center justify-center">
                             <div className="opacity-0 group-hover:opacity-100 transition-opacity duration-200">
                               <span className="text-white text-sm font-medium">클릭하여 확대</span>
@@ -454,146 +749,158 @@ const ProjectDetails = () => {
                         </div>
                       ))}
                     </div>
+                  ) : (
+                    <div className="text-center py-12 bg-gray-50 rounded-lg border border-gray-200">
+                      <ImageIcon className="w-12 h-12 mx-auto mb-3 text-gray-300" />
+                      <p className="text-sm text-gray-500 mb-3">아직 상품 이미지가 없습니다.</p>
+                      {isAdmin && (
+                        <button
+                          onClick={() => productImageInputRef.current?.click()}
+                          className="text-blue-600 hover:text-blue-700 text-sm font-medium"
+                        >
+                          이미지 추가하기
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Basic Information Table */}
+                <div className="mb-8">
+                  <h2 className="text-xl font-semibold text-gray-900 mb-4 flex items-center">
+                    <Package className="w-5 h-5 mr-2 text-blue-600" />
+                    기본 정보
+                  </h2>
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full divide-y divide-gray-200 border border-gray-200">
+                      <tbody className="bg-white divide-y divide-gray-200">
+                        <tr className="hover:bg-gray-50">
+                          <td className="px-4 py-4 whitespace-nowrap text-sm font-medium text-gray-900 bg-gray-50 border-r border-gray-200 w-1/6">
+                            <div className="flex items-center">
+                              <Package className="w-4 h-4 mr-2 text-blue-600" />
+                              프로젝트명
+                            </div>
+                          </td>
+                          <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-900 border-r border-gray-200 w-1/6">
+                            {project.project_name}
+                          </td>
+                          <td className="px-4 py-4 whitespace-nowrap text-sm font-medium text-gray-900 bg-gray-50 border-r border-gray-200 w-1/6">
+                            <div className="flex items-center">
+                              <div className="w-4 h-4 mr-2 rounded-full bg-blue-600"></div>
+                              상태
+                            </div>
+                          </td>
+                          <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-900 border-r border-gray-200 w-1/6">
+                            {getStatusBadge(project.status)}
+                          </td>
+                          <td className="px-4 py-4 whitespace-nowrap text-sm font-medium text-gray-900 bg-gray-50 border-r border-gray-200 w-1/6">
+                            <div className="flex items-center">
+                              <Package className="w-4 h-4 mr-2 text-green-600" />
+                              수량
+                            </div>
+                          </td>
+                          <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-900 w-1/6">
+                            {project.quantity?.toLocaleString() || '-'}
+                          </td>
+                        </tr>
+                        <tr className="hover:bg-gray-50">
+                          <td className="px-4 py-4 whitespace-nowrap text-sm font-medium text-gray-900 bg-gray-50 border-r border-gray-200">
+                            <div className="flex items-center">
+                              <div className="w-4 h-4 mr-2 text-yellow-600 font-bold">¥</div>
+                              목표단가
+                            </div>
+                          </td>
+                          <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-900 border-r border-gray-200">
+                            {project.target_price ? `¥${project.target_price.toLocaleString()}` : '-'}
+                          </td>
+                          <td className="px-4 py-4 whitespace-nowrap text-sm font-medium text-gray-900 bg-gray-50 border-r border-gray-200">
+                            <div className="flex items-center">
+                              <Calendar className="w-4 h-4 mr-2 text-purple-600" />
+                              등록일
+                            </div>
+                          </td>
+                          <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-900 border-r border-gray-200">
+                            {formatDate(project.created_at)}
+                          </td>
+                          <td className="px-4 py-4 whitespace-nowrap text-sm font-medium text-gray-900 bg-gray-50 border-r border-gray-200">
+                            <div className="flex items-center">
+                              <Clock className="w-4 h-4 mr-2 text-indigo-600" />
+                              수정일
+                            </div>
+                          </td>
+                          <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-900">
+                            {formatDate(project.updated_at)}
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* Product Information Component */}
+                <ProdInfo project={project} />
+
+                {/* Description */}
+                {project.description && (
+                  <div className="mb-8">
+                    <h2 className="text-xl font-semibold text-gray-900 mb-4">프로젝트 설명</h2>
+                    <div className="bg-gray-50 p-4 rounded-lg">
+                      <p className="text-gray-700 whitespace-pre-wrap">{project.description}</p>
+                    </div>
                   </div>
                 )}
 
-            {/* Basic Information Table */}
-            <div className="mb-8">
-              <h2 className="text-xl font-semibold text-gray-900 mb-4 flex items-center">
-                <Package className="w-5 h-5 mr-2 text-blue-600" />
-                기본 정보
-              </h2>
-              <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200 border border-gray-200">
-                  <tbody className="bg-white divide-y divide-gray-200">
-                    <tr className="hover:bg-gray-50">
-                      <td className="px-4 py-4 whitespace-nowrap text-sm font-medium text-gray-900 bg-gray-50 border-r border-gray-200 w-1/6">
-                        <div className="flex items-center">
-                          <Package className="w-4 h-4 mr-2 text-blue-600" />
-                          프로젝트명
-                        </div>
-                      </td>
-                      <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-900 border-r border-gray-200 w-1/6">
-                        {project.project_name}
-                      </td>
-                      <td className="px-4 py-4 whitespace-nowrap text-sm font-medium text-gray-900 bg-gray-50 border-r border-gray-200 w-1/6">
-                        <div className="flex items-center">
-                          <div className="w-4 h-4 mr-2 rounded-full bg-blue-600"></div>
-                          상태
-                        </div>
-                      </td>
-                      <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-900 border-r border-gray-200 w-1/6">
-                        {getStatusBadge(project.status)}
-                      </td>
-                      <td className="px-4 py-4 whitespace-nowrap text-sm font-medium text-gray-900 bg-gray-50 border-r border-gray-200 w-1/6">
-                        <div className="flex items-center">
-                          <Package className="w-4 h-4 mr-2 text-green-600" />
-                          수량
-                        </div>
-                      </td>
-                      <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-900 w-1/6">
-                        {project.quantity?.toLocaleString() || '-'}
-                      </td>
-                    </tr>
-                    <tr className="hover:bg-gray-50">
-                      <td className="px-4 py-4 whitespace-nowrap text-sm font-medium text-gray-900 bg-gray-50 border-r border-gray-200">
-                        <div className="flex items-center">
-                          <div className="w-4 h-4 mr-2 text-yellow-600 font-bold">¥</div>
-                          목표단가
-                        </div>
-                      </td>
-                      <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-900 border-r border-gray-200">
-                        {project.target_price ? `¥${project.target_price.toLocaleString()}` : '-'}
-                      </td>
-                      <td className="px-4 py-4 whitespace-nowrap text-sm font-medium text-gray-900 bg-gray-50 border-r border-gray-200">
-                        <div className="flex items-center">
-                          <Calendar className="w-4 h-4 mr-2 text-purple-600" />
-                          등록일
-                        </div>
-                      </td>
-                      <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-900 border-r border-gray-200">
-                        {formatDate(project.created_at)}
-                      </td>
-                      <td className="px-4 py-4 whitespace-nowrap text-sm font-medium text-gray-900 bg-gray-50 border-r border-gray-200">
-                        <div className="flex items-center">
-                          <Clock className="w-4 h-4 mr-2 text-indigo-600" />
-                          수정일
-                        </div>
-                      </td>
-                      <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {formatDate(project.updated_at)}
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-
-            {/* Product Information Component */}
-            <ProdInfo project={project} />
-
-            {/* Description */}
-            {project.description && (
-              <div className="mb-8">
-                <h2 className="text-xl font-semibold text-gray-900 mb-4">프로젝트 설명</h2>
-                <div className="bg-gray-50 p-4 rounded-lg">
-                  <p className="text-gray-700 whitespace-pre-wrap">{project.description}</p>
-                </div>
-              </div>
-            )}
-
-            {/* Reference Links */}
-            {project.referenceLinks && project.referenceLinks.length > 0 && (
-              <div className="mb-8">
-                <h2 className="text-xl font-semibold text-gray-900 mb-4 flex items-center">
-                  <LinkIcon className="w-5 h-5 mr-2 text-purple-600" />
-                  참고링크
-                </h2>
-                <div className="overflow-x-auto">
-                  <table className="min-w-full divide-y divide-gray-200">
-                    <thead className="bg-gray-50">
-                      <tr>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          링크
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          작업
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody className="bg-white divide-y divide-gray-200">
-                      {project.referenceLinks.map((link, index) => (
-                        <tr key={index} className="hover:bg-gray-50">
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                            <a
-                              href={link.url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-blue-600 hover:text-blue-800 underline break-all"
-                            >
-                              {link.url}
-                            </a>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                            <button
-                              onClick={() => {
-                                navigator.clipboard.writeText(link.url);
-                                alert('링크가 클립보드에 복사되었습니다.');
-                              }}
-                              className="text-green-600 hover:text-green-900 transition-colors"
-                              title="링크 복사"
-                            >
-                              복사
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
+                {/* Reference Links */}
+                {project.referenceLinks && project.referenceLinks.length > 0 && (
+                  <div className="mb-8">
+                    <h2 className="text-xl font-semibold text-gray-900 mb-4 flex items-center">
+                      <LinkIcon className="w-5 h-5 mr-2 text-purple-600" />
+                      참고링크
+                    </h2>
+                    <div className="overflow-x-auto">
+                      <table className="min-w-full divide-y divide-gray-200">
+                        <thead className="bg-gray-50">
+                          <tr>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                              링크
+                            </th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                              작업
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody className="bg-white divide-y divide-gray-200">
+                          {project.referenceLinks.map((link, index) => (
+                            <tr key={index} className="hover:bg-gray-50">
+                              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                <a
+                                  href={link.url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-blue-600 hover:text-blue-800 underline break-all"
+                                >
+                                  {link.url}
+                                </a>
+                              </td>
+                              <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                                <button
+                                  onClick={() => {
+                                    navigator.clipboard.writeText(link.url);
+                                    alert('링크가 클립보드에 복사되었습니다.');
+                                  }}
+                                  className="text-green-600 hover:text-green-900 transition-colors"
+                                  title="링크 복사"
+                                >
+                                  복사
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
               </>
             )}
 
