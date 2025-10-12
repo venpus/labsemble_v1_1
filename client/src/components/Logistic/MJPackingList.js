@@ -512,7 +512,7 @@ const MJPackingList = () => {
               <div>
                 <p className="text-sm font-medium text-orange-700">총 배송비</p>
                 <p className="text-2xl font-bold text-orange-800">
-                  {packingLists.reduce((sum, item) => sum + item.total_shipping_cost, 0).toLocaleString()}원
+                  ¥{packingLists.reduce((sum, item) => sum + item.total_shipping_cost, 0).toLocaleString()}
                 </p>
               </div>
               <div className="p-2 bg-orange-100 rounded-lg">
@@ -564,40 +564,43 @@ const MJPackingList = () => {
       {/* 패킹 리스트 테이블 */}
       <div className="bg-white shadow-md rounded-lg overflow-hidden mx-2">
         <div className="overflow-x-auto">
-          <table className="w-full divide-y divide-gray-200" style={{ minWidth: '1400px' }}>
+          <table className="w-full divide-y divide-gray-200" style={{ minWidth: '1600px' }}>
             <thead className="bg-gray-50">
               <tr>
-                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-16">
+                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap" style={{ width: '60px' }}>
                   번호
                 </th>
-                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-32">
+                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap" style={{ width: '140px' }}>
                   출고일자
                 </th>
-                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-24">
+                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap" style={{ width: '100px' }}>
                   총 박스수
                 </th>
-                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-48">
+                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap" style={{ width: '200px' }}>
                   포함 상품명
                 </th>
-                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-32">
+                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap" style={{ width: '120px' }}>
                   물류회사
                 </th>
-                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-24">
+                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap" style={{ width: '100px' }}>
                   배송비
                 </th>
-                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-32">
+                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap" style={{ width: '150px' }}>
                   배송비 결제여부
                 </th>
-                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-24">
+                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap" style={{ width: '140px' }}>
                   물류비 / 입고 확인
                 </th>
-                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-20">
+                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap" style={{ width: '100px' }}>
+                  도착원가
+                </th>
+                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap" style={{ width: '130px' }}>
                   상품 개수 보기
                 </th>
-                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-20">
+                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap" style={{ width: '100px' }}>
                   상세보기
                 </th>
-                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-20">
+                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap" style={{ width: '80px' }}>
                   삭제
                 </th>
               </tr>
@@ -605,7 +608,7 @@ const MJPackingList = () => {
             <tbody className="bg-white divide-y divide-gray-200">
               {packingLists.length === 0 ? (
                 <tr>
-                  <td colSpan="11" className="px-6 py-12 text-center text-gray-500">
+                  <td colSpan="12" className="px-6 py-12 text-center text-gray-500">
                     저장된 패킹 리스트가 없습니다.
                   </td>
                 </tr>
@@ -689,7 +692,7 @@ const MJPackingList = () => {
                           }}
                           title="클릭하여 물류 결제 관리 페이지로 이동"
                         >
-                          {item.total_shipping_cost ? `${item.total_shipping_cost.toLocaleString()}원` : '0원'}
+                          {item.total_shipping_cost ? `¥${item.total_shipping_cost.toLocaleString()}` : '¥0'}
                         </span>
                       </div>
                     </td>
@@ -730,6 +733,22 @@ const MJPackingList = () => {
                           title={`${item.pl_date} 출고일자의 물류비 상세 정보 보기`}
                         >
                           <Package className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900 text-center">
+                      <div className="flex justify-center">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toast.info('도착원가 기능 준비 중입니다.');
+                          }}
+                          className="inline-flex items-center justify-center w-8 h-8 bg-teal-100 text-teal-600 rounded-lg hover:bg-teal-200 transition-colors"
+                          title={`${item.pl_date} 출고일자의 도착원가 정보 보기`}
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          </svg>
                         </button>
                       </div>
                     </td>
@@ -888,7 +907,7 @@ const MJPackingList = () => {
               className="cursor-pointer hover:text-blue-600 underline"
               onClick={() => navigate('/dashboard/mj-packing-list/logistic-payment')}
               title="클릭하여 물류 결제 관리 페이지로 이동"
-            >{packingLists.reduce((sum, item) => sum + item.total_shipping_cost, 0).toLocaleString()}원</span></div>
+            >¥{packingLists.reduce((sum, item) => sum + item.total_shipping_cost, 0).toLocaleString()}</span></div>
             <div>• 배송비 결제 현황: <span 
               className="cursor-pointer hover:text-blue-600 underline"
               onClick={() => navigate('/dashboard/mj-packing-list/logistic-payment')}

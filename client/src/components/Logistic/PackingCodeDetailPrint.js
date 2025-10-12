@@ -9,6 +9,7 @@ const PackingCodeDetailPrint = ({
   summary 
 }) => {
   const [isPrinting, setIsPrinting] = useState(false);
+  const [includeArrivalCost, setIncludeArrivalCost] = useState(false); // 도착원가 포함 여부
 
   // 인쇄 기능
   const handlePrint = () => {
@@ -55,13 +56,16 @@ const PackingCodeDetailPrint = ({
             .print-summary {
               display: flex;
               justify-content: space-around;
+              flex-wrap: wrap;
               margin-bottom: 30px;
               padding: 15px;
               background-color: #f8f9fa;
               border: 1px solid #dee2e6;
+              gap: 10px;
             }
             .summary-item {
               text-align: center;
+              min-width: 120px;
             }
             .summary-label {
               font-size: 12px;
@@ -72,6 +76,12 @@ const PackingCodeDetailPrint = ({
               font-size: 18px;
               font-weight: bold;
               color: #333;
+            }
+            .arrival-cost-info {
+              background-color: rgba(255, 255, 255, 0.2);
+              padding: 8px 12px;
+              border-radius: 6px;
+              text-align: right;
             }
             .product-group {
               margin-bottom: 25px;
@@ -203,6 +213,11 @@ const PackingCodeDetailPrint = ({
                 -webkit-print-color-adjust: exact !important;
                 color-adjust: exact !important;
               }
+              .arrival-cost-info {
+                background-color: rgba(255, 255, 255, 0.2) !important;
+                -webkit-print-color-adjust: exact !important;
+                color-adjust: exact !important;
+              }
               .product-image {
                 width: 40px !important;
                 height: 40px !important;
@@ -260,6 +275,23 @@ const PackingCodeDetailPrint = ({
             <p className="text-sm text-gray-600">
               {selectedDate} 출고일자 - A4용지 기준 미리보기
             </p>
+            {/* 도착원가 포함 옵션 */}
+            <div className="mt-3 flex items-center">
+              <label className="flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={includeArrivalCost}
+                  onChange={(e) => setIncludeArrivalCost(e.target.checked)}
+                  className="rounded border-gray-300 text-teal-600 focus:ring-teal-500 mr-2"
+                />
+                <span className="text-sm font-medium text-gray-700">
+                  도착원가 정보 포함
+                </span>
+                <span className="ml-2 text-xs text-gray-500">
+                  (물류비 + 제품비 단가)
+                </span>
+              </label>
+            </div>
           </div>
           <div className="flex items-center gap-3">
             <button
@@ -298,7 +330,9 @@ const PackingCodeDetailPrint = ({
             <div id="print-content">
               {/* 인쇄용 헤더 */}
               <div className="print-header">
-                <div className="print-title">제품별 리스트</div>
+                <div className="print-title">
+                  제품별 리스트{includeArrivalCost && ' (도착원가 포함)'}
+                </div>
                 <div className="print-subtitle">
                   출고일자: {selectedDate === 'no-date' ? '날짜 미지정' : selectedDate}
                 </div>
@@ -322,7 +356,42 @@ const PackingCodeDetailPrint = ({
                   <div className="summary-label">포장코드 수</div>
                   <div className="summary-value">{summary.totalPackingCodes}개</div>
                 </div>
+                {includeArrivalCost && summary.commonLogisticCostPerUnit > 0 && (
+                  <div className="summary-item">
+                    <div className="summary-label">공통 물류비 단가</div>
+                    <div className="summary-value" style={{ color: '#0d9488' }}>¥{summary.commonLogisticCostPerUnit.toFixed(2)}/개</div>
+                  </div>
+                )}
               </div>
+
+              {/* 도착원가 계산 안내 */}
+              {includeArrivalCost && summary.dateTotalLogisticFee > 0 && (
+                <div style={{ 
+                  marginBottom: '20px', 
+                  padding: '15px', 
+                  backgroundColor: '#e0f2fe', 
+                  border: '1px solid #0ea5e9',
+                  borderRadius: '6px'
+                }}>
+                  <div style={{ fontWeight: 'bold', marginBottom: '8px', color: '#0c4a6e' }}>
+                    💰 도착원가 계산 방식
+                  </div>
+                  <div style={{ fontSize: '11px', color: '#0c4a6e' }}>
+                    <div style={{ marginBottom: '4px' }}>
+                      • 해당 날짜 총 물류비: ¥{summary.dateTotalLogisticFee.toLocaleString()}
+                    </div>
+                    <div style={{ marginBottom: '4px' }}>
+                      • 해당 날짜 총 수량: {summary.totalQuantity.toLocaleString()}개
+                    </div>
+                    <div style={{ fontWeight: 'bold', color: '#0d9488' }}>
+                      • 공통 물류비 단가: ¥{summary.commonLogisticCostPerUnit?.toFixed(2) || '0.00'}/개 (모든 제품에 동일 적용)
+                    </div>
+                    <div style={{ marginTop: '8px', fontStyle: 'italic' }}>
+                      → 도착원가 = 공통 물류비 단가 + (프로젝트 최종금액 ÷ 주문수량)
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* 제품별 그룹화된 상품 상세 테이블 */}
               {packingData && packingData.length > 0 ? (
@@ -333,38 +402,56 @@ const PackingCodeDetailPrint = ({
                   return (
                     <div key={item.product_key} className="product-group">
                       {/* 제품 헤더 */}
-                      <div className="product-group-header" style={{ display: 'flex', alignItems: 'center' }}>
-                        <div style={{ marginRight: '15px' }}>
-                          {item.product_image ? (
-                            <img
-                              src={item.product_image}
-                              alt={item.product_name}
-                              className="product-image"
-                              onError={(e) => {
-                                e.target.style.display = 'none';
-                              }}
-                            />
-                          ) : (
-                            <div 
-                              className="product-image-placeholder"
-                              style={{ 
-                                width: '40px', 
-                                height: '40px', 
-                                backgroundColor: 'transparent',
-                                border: 'none'
-                              }}
-                            >
+                      <div className="product-group-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <div style={{ display: 'flex', alignItems: 'center' }}>
+                          <div style={{ marginRight: '15px' }}>
+                            {item.product_image ? (
+                              <img
+                                src={item.product_image}
+                                alt={item.product_name}
+                                className="product-image"
+                                onError={(e) => {
+                                  e.target.style.display = 'none';
+                                }}
+                              />
+                            ) : (
+                              <div 
+                                className="product-image-placeholder"
+                                style={{ 
+                                  width: '40px', 
+                                  height: '40px', 
+                                  backgroundColor: 'transparent',
+                                  border: 'none'
+                                }}
+                              >
+                              </div>
+                            )}
+                          </div>
+                          <div>
+                            <div style={{ fontSize: '16px', fontWeight: 'bold' }}>
+                              📦 {item.product_name}
                             </div>
-                          )}
-                        </div>
-                        <div>
-                          <div style={{ fontSize: '16px', fontWeight: 'bold' }}>
-                            📦 {item.product_name}
-                          </div>
-                          <div style={{ fontSize: '12px', opacity: '0.9', marginTop: '4px' }}>
-                            SKU: {item.product_sku} | 총 수량: {item.total_quantity.toLocaleString()}개 | 포함 박스수: {totalBoxes}박스
+                            <div style={{ fontSize: '12px', opacity: '0.9', marginTop: '4px' }}>
+                              SKU: {item.product_sku} | 총 수량: {item.total_quantity.toLocaleString()}개 | 포함 박스수: {totalBoxes}박스
+                            </div>
                           </div>
                         </div>
+                        {includeArrivalCost && item.arrival_cost > 0 && (
+                          <div style={{ 
+                            backgroundColor: 'rgba(255, 255, 255, 0.2)', 
+                            padding: '8px 12px', 
+                            borderRadius: '6px',
+                            textAlign: 'right'
+                          }}>
+                            <div style={{ fontSize: '11px', opacity: '0.9' }}>도착원가</div>
+                            <div style={{ fontSize: '18px', fontWeight: 'bold' }}>¥{item.arrival_cost.toFixed(2)}</div>
+                            <div style={{ fontSize: '9px', opacity: '0.8', marginTop: '2px' }}>
+                              {item.logistic_cost_per_unit > 0 && `물류비 ¥${item.logistic_cost_per_unit.toFixed(2)}`}
+                              {item.product_cost_per_unit > 0 && item.logistic_cost_per_unit > 0 && ' + '}
+                              {item.product_cost_per_unit > 0 && `제품비 ¥${item.product_cost_per_unit.toFixed(2)}`}
+                            </div>
+                          </div>
+                        )}
                       </div>
                       
                       {/* 제품별 포장코드 테이블 */}
@@ -409,6 +496,14 @@ const PackingCodeDetailPrint = ({
                         {/* 제품별 요약 정보 */}
                         <div className="product-group-summary">
                           📊 이 제품 총 수량: {item.total_quantity.toLocaleString()}개 | 포함 포장코드: {item.packing_codes.length}개 | 총 박스수: {totalBoxes}박스
+                          {includeArrivalCost && item.arrival_cost > 0 && (
+                            <span style={{ marginLeft: '15px', color: '#0d9488', fontWeight: 'bold' }}>
+                              | 💰 도착원가: ¥{item.arrival_cost.toFixed(2)}/개
+                              {item.logistic_cost_per_unit > 0 && ` (물류비 ¥${item.logistic_cost_per_unit.toFixed(2)}`}
+                              {item.product_cost_per_unit > 0 && ` + 제품비 ¥${item.product_cost_per_unit.toFixed(2)}`}
+                              {(item.logistic_cost_per_unit > 0 || item.product_cost_per_unit > 0) && ')'}
+                            </span>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -435,6 +530,9 @@ const PackingCodeDetailPrint = ({
             <div className="flex items-center gap-4">
               <span>📄 A4용지 기준 (210mm × 297mm)</span>
               <span>📊 총 {packingData ? packingData.length : 0}개 제품</span>
+              {includeArrivalCost && (
+                <span className="text-teal-600 font-medium">💰 도착원가 포함</span>
+              )}
             </div>
             <div className="flex items-center gap-2">
               <Eye className="w-4 h-4" />

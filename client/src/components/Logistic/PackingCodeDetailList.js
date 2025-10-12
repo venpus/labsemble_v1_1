@@ -17,8 +17,14 @@ const PackingCodeDetailList = () => {
     totalProducts: 0,
     totalBoxes: 0,
     totalPackingCodes: 0,
-    logisticCompanies: []
+    logisticCompanies: [],
+    averageArrivalCost: 0,
+    dateTotalLogisticFee: 0,
+    commonLogisticCostPerUnit: 0
   });
+
+  // 물류비 정보 상태
+  const [logisticPaymentData, setLogisticPaymentData] = useState([]);
 
   // 인쇄 모달 상태
   const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
@@ -152,7 +158,10 @@ const PackingCodeDetailList = () => {
             totalProducts: 0,
             totalBoxes: 0,
             totalPackingCodes: 0,
-            logisticCompanies: []
+            logisticCompanies: [],
+            averageArrivalCost: 0,
+            dateTotalLogisticFee: 0,
+            commonLogisticCostPerUnit: 0
           });
           return;
         }
@@ -226,6 +235,133 @@ const PackingCodeDetailList = () => {
         // 제품명 순으로 정렬
         groupedData.sort((a, b) => a.product_name.localeCompare(b.product_name));
         
+        // 물류비 정보 조회
+        let logisticPayments = [];
+        if (date !== 'no-date') {
+          try {
+            const token = localStorage.getItem('token');
+            const logisticResponse = await fetch(`/api/logistic-payment/summary-by-date/${date}`, {
+              headers: {
+                'Authorization': `Bearer ${token}`
+              }
+            });
+            
+            if (logisticResponse.ok) {
+              const logisticResult = await logisticResponse.json();
+              if (logisticResult.success && logisticResult.data) {
+                logisticPayments = logisticResult.data;
+                setLogisticPaymentData(logisticResult.data);
+                console.log('💰 [PackingCodeDetailList] 물류비 정보 조회 성공:', logisticResult.data);
+              }
+            }
+          } catch (error) {
+            console.error('❌ [PackingCodeDetailList] 물류비 조회 오류:', error);
+          }
+        }
+        
+        // 해당 날짜의 전체 물류비 합계 계산
+        const dateTotalLogisticFee = logisticPayments.reduce((sum, lp) => {
+          return sum + (parseFloat(lp.total_logistic_fee) || 0);
+        }, 0);
+        
+        // 해당 날짜의 전체 수량 계산
+        const dateTotalQuantity = groupedData.reduce((sum, product) => {
+          return sum + product.total_quantity;
+        }, 0);
+        
+        // 날짜별 공통 물류비 단가 계산: 해당 날짜의 총 물류비 / 총 수량
+        const commonLogisticCostPerUnit = dateTotalQuantity > 0 
+          ? dateTotalLogisticFee / dateTotalQuantity 
+          : 0;
+        
+        console.log('💰 [PackingCodeDetailList] 날짜별 공통 물류비 단가 계산:', {
+          date: displayDate,
+          dateTotalLogisticFee: dateTotalLogisticFee,
+          dateTotalQuantity: dateTotalQuantity,
+          commonLogisticCostPerUnit: commonLogisticCostPerUnit,
+          calculation: `¥${dateTotalLogisticFee.toFixed(2)} ÷ ${dateTotalQuantity.toLocaleString()}개 = ¥${commonLogisticCostPerUnit.toFixed(2)}/개`
+        });
+        
+        // 각 제품의 프로젝트 정보 조회 (최종금액, 주문수량)
+        const projectInfoMap = {};
+        const uniqueProjectIds = [...new Set(groupedData.map(p => p.project_id).filter(Boolean))];
+        
+        if (uniqueProjectIds.length > 0) {
+          try {
+            const token = localStorage.getItem('token');
+            const projectPromises = uniqueProjectIds.map(async (projectId) => {
+              try {
+                const response = await fetch(`/api/mj-project/${projectId}`, {
+                  headers: {
+                    'Authorization': `Bearer ${token}`
+                  }
+                });
+                
+                if (response.ok) {
+                  const result = await response.json();
+                  if (result.success && result.project) {
+                    return {
+                      projectId,
+                      totalAmount: parseFloat(result.project.total_amount) || 0,
+                      quantity: parseInt(result.project.quantity) || 0
+                    };
+                  }
+                }
+                return { projectId, totalAmount: 0, quantity: 0 };
+              } catch (error) {
+                console.error(`❌ 프로젝트 ${projectId} 정보 조회 오류:`, error);
+                return { projectId, totalAmount: 0, quantity: 0 };
+              }
+            });
+            
+            const projectInfos = await Promise.all(projectPromises);
+            projectInfos.forEach(info => {
+              projectInfoMap[info.projectId] = {
+                totalAmount: info.totalAmount,
+                quantity: info.quantity
+              };
+            });
+            
+            console.log('📊 [PackingCodeDetailList] 프로젝트 정보 조회 완료:', projectInfoMap);
+          } catch (error) {
+            console.error('❌ [PackingCodeDetailList] 프로젝트 정보 조회 오류:', error);
+          }
+        }
+        
+        // 각 제품별 도착원가 계산 (공통 물류비 단가 적용)
+        groupedData.forEach(product => {
+          // 프로젝트 정보에서 제품 단가 계산: 최종금액 / 주문수량
+          let productCostPerUnit = 0;
+          if (product.project_id && projectInfoMap[product.project_id]) {
+            const projectInfo = projectInfoMap[product.project_id];
+            productCostPerUnit = projectInfo.quantity > 0 
+              ? projectInfo.totalAmount / projectInfo.quantity 
+              : 0;
+            
+            product.project_total_amount = projectInfo.totalAmount;
+            product.project_quantity = projectInfo.quantity;
+          }
+          
+          // 도착원가 계산: 공통 물류비 단가 + (최종금액 / 주문수량)
+          product.arrival_cost = commonLogisticCostPerUnit + productCostPerUnit;
+          product.logistic_cost_per_unit = commonLogisticCostPerUnit; // 날짜별 공통 물류비 단가
+          product.product_cost_per_unit = productCostPerUnit;
+          
+          console.log('💰 [PackingCodeDetailList] 제품별 도착원가 계산:', {
+            product_name: product.product_name,
+            project_id: product.project_id,
+            packing_codes: product.packing_codes.map(pc => pc.packing_code),
+            common_logistic_cost_per_unit: commonLogisticCostPerUnit,
+            date_total_logistic_fee: dateTotalLogisticFee,
+            date_total_quantity: dateTotalQuantity,
+            project_total_amount: product.project_total_amount,
+            project_quantity: product.project_quantity,
+            product_cost_per_unit: productCostPerUnit,
+            arrival_cost: product.arrival_cost,
+            calculation: `¥${commonLogisticCostPerUnit.toFixed(2)} + ¥${productCostPerUnit.toFixed(2)} = ¥${product.arrival_cost.toFixed(2)}`
+          });
+        });
+        
         // 중복 제품 확인 (디버깅용)
         const duplicateCheck = {};
         groupedData.forEach(group => {
@@ -257,7 +393,13 @@ const PackingCodeDetailList = () => {
             project_name: group.project_name,
             total_quantity: group.total_quantity,
             packing_codes_count: group.packing_codes.length,
-            packing_codes: group.packing_codes.map(pc => pc.packing_code)
+            packing_codes: group.packing_codes.map(pc => pc.packing_code),
+            total_logistic_fee: group.total_logistic_fee,
+            logistic_cost_per_unit: group.logistic_cost_per_unit,
+            product_cost_per_unit: group.product_cost_per_unit,
+            arrival_cost: group.arrival_cost,
+            project_total_amount: group.project_total_amount,
+            project_quantity: group.project_quantity
           }))
         });
         
@@ -277,12 +419,19 @@ const PackingCodeDetailList = () => {
         const totalPackingCodes = uniquePackingCodes.length;
         const logisticCompanies = Array.from(new Set(filteredData.map(item => item.logistic_company).filter(Boolean)));
         
+        // 평균 도착원가 계산
+        const totalArrivalCost = groupedData.reduce((sum, item) => sum + (item.arrival_cost * item.total_quantity), 0);
+        const averageArrivalCost = totalQuantity > 0 ? totalArrivalCost / totalQuantity : 0;
+        
         setSummary({
           totalQuantity,
           totalProducts,
           totalBoxes,
           totalPackingCodes,
-          logisticCompanies
+          logisticCompanies,
+          averageArrivalCost,
+          dateTotalLogisticFee,
+          commonLogisticCostPerUnit
         });
         
         console.log('✅ [PackingCodeDetailList] 제품별 데이터 로드 완료:', {
@@ -528,7 +677,7 @@ const PackingCodeDetailList = () => {
       </div>
 
       {/* 요약 카드들 */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
         <div className="bg-white p-6 rounded-lg shadow border border-gray-200">
           <div className="flex items-center">
             <div className="p-2 bg-blue-100 rounded-lg">
@@ -580,6 +729,36 @@ const PackingCodeDetailList = () => {
         </div>
       </div>
 
+      {/* 물류비 계산 안내 */}
+      {summary.dateTotalLogisticFee > 0 && summary.totalQuantity > 0 && (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
+          <div className="flex items-start">
+            <div className="flex-shrink-0">
+              <svg className="h-5 w-5 text-blue-400" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+              </svg>
+            </div>
+            <div className="ml-3 flex-1">
+              <h3 className="text-sm font-medium text-blue-800">물류비 계산 방식</h3>
+              <div className="mt-2 text-sm text-blue-700">
+                <p className="mb-1">
+                  <span className="font-semibold">해당 날짜 총 물류비:</span> ¥{summary.dateTotalLogisticFee.toLocaleString()}
+                </p>
+                <p className="mb-1">
+                  <span className="font-semibold">해당 날짜 총 수량:</span> {summary.totalQuantity.toLocaleString()}개
+                </p>
+                <p className="font-semibold">
+                  <span className="text-teal-700">공통 물류비 단가:</span> ¥{summary.commonLogisticCostPerUnit.toFixed(2)}/개
+                  <span className="ml-2 text-gray-500 font-normal">
+                    (모든 제품에 동일 적용)
+                  </span>
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 데이터가 없는 경우 안내 메시지 */}
       {packingData.length === 0 && !loading && !error && (
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-8 text-center mb-8">
@@ -618,23 +797,26 @@ const PackingCodeDetailList = () => {
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    번호
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    제품명
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    총 개수
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    포함 포장 코드
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    포함된 박스수
-                  </th>
-                </tr>
+              <tr>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  번호
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  제품명
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  총 개수
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  포함 포장 코드
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  포함된 박스수
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  도착원가
+                </th>
+              </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
                 {packingData.map((item, index) => {
@@ -701,6 +883,46 @@ const PackingCodeDetailList = () => {
                           <span className="font-bold text-lg text-orange-700">
                             {totalBoxes.toLocaleString()}박스
                           </span>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        <div className="flex flex-col items-start">
+                          <div className="flex items-center">
+                            <svg className="w-4 h-4 mr-2 text-teal-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                            <span className="font-bold text-lg text-teal-700">
+                              ¥{item.arrival_cost ? item.arrival_cost.toFixed(2) : '0.00'}
+                            </span>
+                          </div>
+                          <div className="text-xs text-gray-500 mt-1 ml-6 space-y-0.5">
+                            {/* 물류비 단가 (날짜별 공통) */}
+                            {item.logistic_cost_per_unit > 0 && (
+                              <div className="flex items-center">
+                                <span className="text-blue-600 font-medium mr-1">물류비:</span>
+                                <span>¥{item.logistic_cost_per_unit.toFixed(2)}</span>
+                                <span className="ml-1 text-gray-400 text-xs">
+                                  (날짜 공통)
+                                </span>
+                              </div>
+                            )}
+                            {/* 제품 단가 */}
+                            {item.product_cost_per_unit > 0 && (
+                              <div className="flex items-center">
+                                <span className="text-green-600 font-medium mr-1">제품비:</span>
+                                <span>¥{item.product_cost_per_unit.toFixed(2)}</span>
+                                <span className="ml-1 text-gray-400">
+                                  (¥{item.project_total_amount?.toLocaleString() || '0'} ÷ {item.project_quantity?.toLocaleString() || '0'})
+                                </span>
+                              </div>
+                            )}
+                            {/* 프로젝트 정보가 없는 경우 안내 */}
+                            {!item.project_id && item.logistic_cost_per_unit > 0 && (
+                              <div className="text-amber-600 text-xs">
+                                * 프로젝트 미연결 (물류비만 계산)
+                              </div>
+                            )}
+                          </div>
                         </div>
                       </td>
                     </tr>
