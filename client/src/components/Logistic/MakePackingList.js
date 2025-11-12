@@ -155,117 +155,6 @@ const MakePackingList = () => {
     }
   }, []);
 
-  // mj_packing_list 기반으로 프로젝트 export_quantity 계산 및 업데이트 함수
-  const calculateProjectExportQuantity = useCallback(async (projectId) => {
-    if (!projectId) {
-      console.warn('⚠️ [calculateProjectExportQuantity] 프로젝트 ID가 없습니다.');
-      return false;
-    }
-
-    try {
-      const token = localStorage.getItem('token');
-      if (!token) {
-        throw new Error('인증 토큰이 없습니다.');
-      }
-
-      console.log('🚀 [calculateProjectExportQuantity] mj_packing_list 기반 export_quantity 계산 시작:', {
-        projectId
-      });
-
-      const response = await fetch('/api/packing-list/calculate-project-export-quantity', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          projectId
-        })
-      });
-
-      if (!response.ok) {
-        // 서버에서 반환한 실제 오류 메시지 확인
-        let errorMessage = '프로젝트 export_quantity 계산에 실패했습니다.';
-        let errorDetails = null;
-        
-        try {
-          const errorResult = await response.json();
-          errorMessage = errorResult.error || errorResult.message || errorMessage;
-          errorDetails = errorResult.details;
-          
-          console.error('❌ [calculateProjectExportQuantity] 서버 오류 응답:', {
-            status: response.status,
-            statusText: response.statusText,
-            errorResult
-          });
-          
-          // 수량 초과 오류인 경우 상세 정보 표시
-          if (errorResult.details && errorResult.details.totalExportQuantity && errorResult.details.entryQuantity) {
-            const { totalExportQuantity, entryQuantity, difference } = errorResult.details;
-            errorMessage = `출고 수량(${totalExportQuantity.toLocaleString()})이 입고 수량(${entryQuantity.toLocaleString()})을 ${difference.toLocaleString()}개 초과합니다.`;
-          }
-        } catch (parseError) {
-          console.error('❌ [calculateProjectExportQuantity] 오류 응답 파싱 실패:', parseError);
-        }
-        throw new Error(errorMessage);
-      }
-
-      const result = await response.json();
-      
-      if (result.success) {
-        console.log('✅ [calculateProjectExportQuantity] 프로젝트 export_quantity 계산 및 업데이트 성공:', {
-          projectId,
-          oldExportQuantity: result.oldExportQuantity,
-          newExportQuantity: result.newExportQuantity,
-          remainQuantity: result.remainQuantity,
-          packingListCount: result.packingListCount,
-          calculationDetails: result.calculationDetails
-        });
-
-        // 각 물품별 계산 상세 로그 출력
-        if (result.calculationDetails && result.calculationDetails.length > 0) {
-          console.log('📦 [calculateProjectExportQuantity] 물품별 개별 계산 상세:', result.calculationDetails.map(item => ({
-            packingCode: item.packingCode,
-            productName: item.productName,
-            clientProductId: item.clientProductId,
-            calculation: `${item.boxCount} × ${item.packagingCount} × ${item.packagingMethod} = ${item.calculatedQuantity}`
-          })));
-        }
-        return true;
-      } else {
-        // 제약조건 위반 등 상세한 오류 정보 포함
-        const errorMessage = result.error || '계산에 실패했습니다.';
-        const errorDetails = result.details ? ` (${JSON.stringify(result.details)})` : '';
-        throw new Error(errorMessage + errorDetails);
-      }
-      
-    } catch (error) {
-      console.error('❌ [calculateProjectExportQuantity] 프로젝트 export_quantity 계산 오류:', {
-        error: error.message,
-        projectId,
-        stack: error.stack,
-        timestamp: new Date().toISOString()
-      });
-      
-      // 사용자에게 구체적인 오류 정보 표시
-      if (error.message.includes('출고 수량') && error.message.includes('입고 수량')) {
-        toast.error(`수량 초과 오류: ${error.message}`, {
-          duration: 5000,
-          style: {
-            background: '#fee2e2',
-            color: '#dc2626',
-            border: '1px solid #fca5a5'
-          }
-        });
-      } else {
-        toast.error(`프로젝트 출고 수량 계산 실패: ${error.message}`);
-      }
-      
-      return false;
-    }
-  }, []);
-  
-
 
   const handleBack = () => {
     navigate('/dashboard/mj-packing-list');
@@ -870,36 +759,8 @@ const MakePackingList = () => {
       
       console.log('✅ [performFullSave] 1단계 완료: 모든 패킹리스트 데이터 저장 완료');
 
-      // 2단계: 프로젝트 export_quantity 업데이트 (mj_packing_list 기반 계산)
-      if (selectedProjectId) {
-        console.log('🔄 [performFullSave] 2단계: 프로젝트 export_quantity 계산 시작:', {
-          selectedProjectId,
-          packingDataSummary: packingData.map(group => ({
-            packingCode: group.packingCode,
-            productCount: group.products.length,
-            groupExportQuantity: group.products.reduce((sum, p) => sum + (p.exportQuantity || 0), 0)
-          }))
-        });
-
-        // mj_packing_list 테이블의 데이터를 기반으로 export_quantity 계산 및 업데이트
-        const calculateSuccess = await calculateProjectExportQuantity(selectedProjectId);
-        if (calculateSuccess) {
-          console.log('✅ [performFullSave] 2단계 완료: 프로젝트 출고 수량 계산/업데이트 완료');
-          return { success: true, message: '패킹리스트 저장 및 프로젝트 출고 수량 계산/업데이트가 완료되었습니다.' };
-        } else {
-          console.error('❌ [performFullSave] 2단계 실패: 프로젝트 출고 수량 계산/업데이트 실패', {
-            selectedProjectId,
-            timestamp: new Date().toISOString()
-          });
-          return { 
-            success: false, 
-            message: '패킹리스트는 저장되었으나 프로젝트 출고 수량 계산/업데이트에 실패했습니다. 서버 로그를 확인해주세요.' 
-          };
-        }
-      } else {
-        console.log('✅ [performFullSave] 완료: 프로젝트 ID가 없어 export_quantity 업데이트 건너뛰기');
-        return { success: true, message: '모든 데이터가 저장되었습니다.' };
-      }
+      console.log('✅ [performFullSave] 완료: 프로젝트 출고 수량 계산 없이 저장만 수행');
+      return { success: true, message: '모든 데이터가 저장되었습니다.' };
     } catch (error) {
       console.error('❌ [performFullSave] 전체 저장 중 오류:', {
         packingCode,
@@ -922,7 +783,7 @@ const MakePackingList = () => {
     try {
       // 상품 추가 전에 기존 물품들을 전체 저장과 같은 방식으로 저장
       console.log('🔄 [addProduct] 상품 추가 전 기존 물품들 전체 저장 시작');
-      const saveResult = await performFullSave(packingCode);
+        const saveResult = await performFullSave(packingCode);
       
       if (!saveResult.success) {
         console.error('❌ [addProduct] 기존 물품 전체 저장 실패로 새 상품 추가 중단');
@@ -1002,8 +863,8 @@ const MakePackingList = () => {
       // useEffect가 packingData 변경을 감지하여 자동 저장 처리
       console.log('💾 [addProduct] 상태 업데이트 완료, useEffect가 자동 저장 처리 예정');
       
-      // 성공 메시지 표시 (전체 저장과 같은 기능이 수행되었음을 알림)
-      toast.success(`새 상품이 추가되었습니다. (기존 물품들은 전체 저장과 같은 방식으로 저장되었습니다)`);
+        // 성공 메시지 표시
+        toast.success(`새 상품이 추가되었습니다.`);
       
     } catch (error) {
       console.error('❌ [addProduct] 상품 추가 중 오류:', {
