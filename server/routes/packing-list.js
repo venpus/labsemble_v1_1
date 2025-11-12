@@ -754,38 +754,6 @@ router.post('/calculate-project-export-quantity', auth, async (req, res) => {
 
     // 총 export_quantity 계산
 
-    // 제약조건 검증: export_quantity가 entry_quantity를 초과하지 않는지 확인
-    if (totalExportQuantity > currentProject.entry_quantity) {
-      // 제약조건 위반: 출고 수량이 입고 수량을 초과
-
-      return res.status(400).json({
-        success: false,
-        error: '출고 수량이 입고 수량을 초과할 수 없습니다.',
-        details: {
-          projectId,
-          projectName: currentProject.project_name,
-          calculatedExportQuantity: totalExportQuantity,
-          entryQuantity: currentProject.entry_quantity,
-          exceedAmount: totalExportQuantity - currentProject.entry_quantity
-        }
-      });
-    }
-
-    // 제약조건 검증: export_quantity가 음수가 아닌지 확인
-    if (totalExportQuantity < 0) {
-      // 제약조건 위반: 음수 export_quantity
-
-      return res.status(400).json({
-        success: false,
-        error: '출고 수량은 음수가 될 수 없습니다.',
-        details: {
-          projectId,
-          projectName: currentProject.project_name,
-          calculatedExportQuantity: totalExportQuantity
-        }
-      });
-    }
-
     try {
       console.log(`🔄 [calculate-project-export-quantity] export_quantity 업데이트 시작:`, {
         projectId,
@@ -793,29 +761,6 @@ router.post('/calculate-project-export-quantity', auth, async (req, res) => {
         currentExportQuantity,
         entryQuantity: project[0].entry_quantity
       });
-      
-      // 입고 수량 검증
-      if (totalExportQuantity > project[0].entry_quantity) {
-        const errorMessage = `출고 수량(${totalExportQuantity.toLocaleString()})이 입고 수량(${project[0].entry_quantity.toLocaleString()})을 초과할 수 없습니다.`;
-        console.error(`❌ [calculate-project-export-quantity] 수량 제약조건 위반:`, {
-          projectId,
-          totalExportQuantity,
-          entryQuantity: project[0].entry_quantity,
-          difference: totalExportQuantity - project[0].entry_quantity
-        });
-        
-        res.status(400).json({
-          success: false,
-          error: errorMessage,
-          details: {
-            totalExportQuantity,
-            entryQuantity: project[0].entry_quantity,
-            difference: totalExportQuantity - project[0].entry_quantity,
-            projectId
-          }
-        });
-        return;
-      }
       
       // export_quantity 업데이트
       const [updateResult1] = await connection.execute(
