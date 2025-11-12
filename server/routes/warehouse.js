@@ -653,14 +653,14 @@ router.get('/image/:filename', async (req, res) => {
   }
 });
 
-// mj_project에서 remain_quantity > 0인 프로젝트 목록 조회 (패킹리스트용)
+// mj_project의 모든 프로젝트 목록 조회 (패킹리스트용)
 router.get('/products-with-remain-quantity', authMiddleware, async (req, res) => {
   const connection = await pool.getConnection();
   
   try {
-    devLog('🔄 [warehouse] remain_quantity > 0인 프로젝트 목록 조회 시작');
+    devLog('🔄 [warehouse] 전체 프로젝트 목록 조회 시작 (잔여수량 조건 없음)');
     
-    // mj_project에서 remain_quantity > 0인 프로젝트들을 조회
+    // mj_project에서 모든 프로젝트를 조회 (잔여수량 조건 제거, 최신 생성순 정렬)
     const [products] = await connection.execute(`
       SELECT 
         mp.id as project_id,
@@ -675,8 +675,7 @@ router.get('/products-with-remain-quantity', authMiddleware, async (req, res) =>
         mp.created_at,
         mp.updated_at
       FROM mj_project mp
-      WHERE mp.remain_quantity > 0
-      ORDER BY mp.project_name ASC, mp.description ASC
+      ORDER BY mp.created_at DESC, mp.project_name ASC
     `);
 
     // 각 프로젝트에 연결된 첫 번째 이미지 정보도 함께 조회
@@ -733,13 +732,13 @@ router.get('/products-with-remain-quantity', authMiddleware, async (req, res) =>
     res.json({
       success: true,
       products: responseData,
-      message: 'remain_quantity > 0인 프로젝트 목록 조회 완료'
+      message: '전체 프로젝트 목록 조회 완료'
     });
 
   } catch (error) {
-    errorLog('❌ [warehouse] remain_quantity > 0인 프로젝트 목록 조회 오류:', error);
+    errorLog('❌ [warehouse] 전체 프로젝트 목록 조회 오류:', error);
     res.status(500).json({ 
-      error: 'remain_quantity > 0인 프로젝트 목록 조회 중 오류가 발생했습니다.',
+      error: '전체 프로젝트 목록 조회 중 오류가 발생했습니다.',
       details: error.message 
     });
   } finally {
@@ -747,14 +746,14 @@ router.get('/products-with-remain-quantity', authMiddleware, async (req, res) =>
   }
 });
 
-// 기존 API 엔드포인트도 remain_quantity > 0 조건으로 변경 (호환성 유지)
+// 기존 API 엔드포인트도 잔여수량 조건 제거 (호환성 유지)
 router.get('/products-with-entry-quantity', authMiddleware, async (req, res) => {
   const connection = await pool.getConnection();
   
   try {
-    devLog('🔄 [warehouse] remain_quantity > 0인 프로젝트 목록 조회 (기존 API 호환성)');
+    devLog('🔄 [warehouse] 전체 프로젝트 목록 조회 (기존 API 호환성)');
     
-    // mj_project에서 remain_quantity > 0인 프로젝트들을 조회
+    // mj_project에서 모든 프로젝트를 조회 (잔여수량 조건 제거, 최신 생성순 정렬)
     const [products] = await connection.execute(`
       SELECT 
         mp.id as project_id,
@@ -769,8 +768,7 @@ router.get('/products-with-entry-quantity', authMiddleware, async (req, res) => 
         mp.created_at,
         mp.updated_at
       FROM mj_project mp
-      WHERE mp.remain_quantity > 0
-      ORDER BY mp.project_name ASC, mp.description ASC
+      ORDER BY mp.created_at DESC, mp.project_name ASC
     `);
 
     // 각 프로젝트에 연결된 첫 번째 이미지 정보도 함께 조회
@@ -838,13 +836,13 @@ router.get('/products-with-entry-quantity', authMiddleware, async (req, res) => 
     res.json({
       success: true,
       products: responseData,
-      message: 'remain_quantity > 0인 프로젝트 목록 조회 완료 (기존 API 호환성)'
+      message: '전체 프로젝트 목록 조회 완료 (기존 API 호환성)'
     });
 
   } catch (error) {
-    console.error('❌ [warehouse] remain_quantity > 0인 프로젝트 목록 조회 오류 (기존 API):', error);
+    console.error('❌ [warehouse] 전체 프로젝트 목록 조회 오류 (기존 API):', error);
     res.status(500).json({ 
-      error: 'remain_quantity > 0인 프로젝트 목록 조회 중 오류가 발생했습니다.',
+      error: '전체 프로젝트 목록 조회 중 오류가 발생했습니다.',
       details: error.message 
     });
   } finally {
