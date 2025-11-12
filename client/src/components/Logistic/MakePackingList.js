@@ -768,7 +768,7 @@ const MakePackingList = () => {
       });
       return { success: false, message: `전체 저장 중 오류가 발생했습니다: ${error.message}` };
     }
-  }, [packingData, selectedProjectId, autoSavePackingList, calculateProjectExportQuantity]);
+  }, [packingData, autoSavePackingList]);
 
   // 상품 추가
   const addProduct = async (packingCode) => {
